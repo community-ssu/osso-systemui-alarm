@@ -1,18 +1,13 @@
 Source: osso-systemui-alarm
 Section: misc
 Maintainer: Ivaylo Dimmitrov <freemangordon@abv.bg>
-Build-Depends: debhelper (>= 5), autotools-dev, autoconf, automake1.9 | automake1.8,
-  libgtk2.0-dev, libglib2.0-dev, libx11-dev, libtime-dev, libnotify-dev
+Build-Depends: debhelper (>= 5), libhildon1-dev, libgconf2-dev, libalarm-dev, libnotify-dev, libgtk2.0-dev, libdbus-1-dev, libglib2.0-dev, libtime-dev, hildon-plugins-notify-sv
+Priority: optional
 Standards-Version: 3.7.2
 
-Package: libosso-systemui-alarm
+Package: osso-systemui-alarm
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, osso-systemui (>= 0.0.3.8), osso-powerup-shutdown-l10n-mr0 | osso-powerup-shutdown-l10n-mr, hildon-libs-l10n-mr | hildon-libs-l10n-mr0, osso-clock-l10n-mr | osso-clock-l10n-mr0
+Suggests: osso-mediaengine (>= 1.2.19)
 Description: Alarm dialog
- This package contains the alarm dialog
-
-Package: libosso-systemui-alarm-dbg
-Section: devel
-Architecture: any
-Depends: libosso-systemui-alarm (= ${Source-Version})
-Description: Debugging symbols for alarm dialog
+ This package contains the alarm dialog.
