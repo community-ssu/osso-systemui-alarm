@@ -1,0 +1,18 @@
+Source: osso-systemui-alarm
+Section: misc
+Maintainer: Ivaylo Dimmitrov <freemangordon@abv.bg>
+Build-Depends: debhelper (>= 5), autotools-dev, autoconf, automake1.9 | automake1.8,
+  libgtk2.0-dev, libglib2.0-dev, libx11-dev, libtime-dev, libnotify-dev
+Standards-Version: 3.7.2
+
+Package: libosso-systemui-alarm
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Alarm dialog
+ This package contains the alarm dialog
+
+Package: libosso-systemui-alarm-dbg
+Section: devel
+Architecture: any
+Depends: libosso-systemui-alarm (= ${Source-Version})
+Description: Debugging symbols for alarm dialog

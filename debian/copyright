@@ -1,0 +1,15 @@
+This package was debianized by Ivaylo Dimitrov <freemangordon@abv.bg> on
+Thu, 16 Aug 2012 08:56:37 +0300.
+
+This package may contain parts derived by disassembling of binaries under
+Nokia's copyright, see http://tablets-dev.nokia.com/maemo-dev-env-downloads.php
+
+The original licensing conditions apply to all those derived parts as well
+and you accept those by using this package.
+
+The Debian packaging is (C) 2012, Ivaylo Dimitrov <freemangordon@abv.bg> and
+is licensed under the GPL, see `/usr/share/common-licenses/GPL'.
+
+
+
+
