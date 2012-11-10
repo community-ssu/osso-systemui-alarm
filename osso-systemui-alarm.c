@@ -217,7 +217,8 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
 
   system_ui_info = sui;
 
-  cookie = g_array_index(param,cookie_t,1) & INT_MAX;
+  /* FIXME */
+  cookie = *(cookie_t*)(param->data+8) & INT_MAX;
 
   add_alarm(1);
 
@@ -239,7 +240,8 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
     alarm_events_cnt++;
   }
 
-  if ( g_array_index(param,int,1) >= 0 )
+  /* FIXME */
+  if ( *(cookie_t*)(param->data+8) >= 0 )
   {
     show_all_alarms();
     add_idle_func();
@@ -264,7 +266,7 @@ static void remove_alarm(cookie_t cookie)
 {
   int i;
 
-  for(i=0; i < alarm_events_cnt; )
+  for(i=0; i < alarm_events_cnt; i++)
   {
     if( alarms_events[i]->cookie == cookie)
     {
@@ -381,13 +383,13 @@ static gboolean dbus_send_alarm_dialog_status(dbus_int32_t status)
 
 static alarm_event_t *get_alarm_event(struct alarm *a)
 {
-  if (a && !a->alarm_event )
-  {
-    a->alarm_event = alarmd_event_get(a->cookie);
-    return a->alarm_event;
-  }
+  if (!a)
+    return NULL;
 
-  return NULL;
+  if( !a->alarm_event )
+    a->alarm_event = alarmd_event_get(a->cookie);
+
+  return a->alarm_event;
 }
 
 static void stop_timeouts()
@@ -511,7 +513,7 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
                 "req_tklock_mode_change");
 
         dbus_message_append_args(message,
-                                 DBUS_TYPE_STRING, &s,
+                                 DBUS_TYPE_STRING, s,
                                  DBUS_TYPE_INVALID);
 
         dbus_message_set_no_reply(message, TRUE);
@@ -782,10 +784,10 @@ static void set_label_time_text(GtkWidget * label,alarm_event_t *alarm_event)
 
 gboolean show_alarm_dialog(struct alarm *a)
 {
-  size_t action;
   alarm_event_t *alarm_event;
   char *ptr;
   GtkWidget *time_label;
+  int i;
 
   current_alarm_cookie = -1;
 
@@ -799,7 +801,7 @@ gboolean show_alarm_dialog(struct alarm *a)
   if ( !alarm_dialog )
   {
     alarm_dialog = gtk_dialog_new();
-    if(alarm_dialog)
+    if(!alarm_dialog)
       return FALSE;
 
     gtk_widget_set_no_show_all(GTK_DIALOG(alarm_dialog)->action_area, TRUE);
@@ -832,30 +834,26 @@ gboolean show_alarm_dialog(struct alarm *a)
   gtk_container_foreach(GTK_CONTAINER(alarm_hbox), widget_destroy, 0);
 
 
-  if ( alarm_event->action_cnt )
+  for(i=0; i < alarm_event->action_cnt; i++)
   {
-    int i;
-    for(i=0; i < alarm_event->action_cnt; i++)
+    if ( alarm_action_is_button(&alarm_event->action_tab[i]) )
     {
-      if ( alarm_action_is_button(&alarm_event->action_tab[i]) )
-      {
-        const char *textdomain = alarm_event_get_attr_string(alarm_event, "textdomain", NULL);
-        GtkWidget * button;
+      const char *textdomain = alarm_event_get_attr_string(alarm_event, "textdomain", NULL);
+      GtkWidget * button;
 
-        if ( textdomain )
-          button = gtk_button_new_with_label(dgettext(textdomain, alarm_event->action_tab[i].label));
-        else
-          button = gtk_button_new_with_label(alarm_event->action_tab[i].label);
+      if ( textdomain )
+        button = gtk_button_new_with_label(dgettext(textdomain, alarm_event->action_tab[i].label));
+      else
+        button = gtk_button_new_with_label(alarm_event->action_tab[i].label);
 
-        gtk_container_add(GTK_CONTAINER(dialog_button_box), button);
+      gtk_container_add(GTK_CONTAINER(dialog_button_box), button);
 
-        hildon_gtk_widget_set_theme_size(GTK_WIDGET(button), HILDON_SIZE_THUMB_HEIGHT);
+      hildon_gtk_widget_set_theme_size(GTK_WIDGET(button), HILDON_SIZE_THUMB_HEIGHT);
 
-        if ( alarm_event->action_tab[i].flags & ALARM_ACTION_TYPE_SNOOZE )
-          snooze_action_index = action;
+      if ( alarm_event->action_tab[i].flags & ALARM_ACTION_TYPE_SNOOZE )
+        snooze_action_index = i;
 
-        g_signal_connect_data(GTK_WIDGET(button), "clicked", G_CALLBACK(clicked_cb), (gpointer)action, NULL, 0);
-      }
+      g_signal_connect_data(GTK_WIDGET(button), "clicked", G_CALLBACK(clicked_cb), (gpointer)i, NULL, 0);
     }
   }
 
