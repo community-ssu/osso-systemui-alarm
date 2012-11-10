@@ -970,6 +970,7 @@ LABEL_20:
   {
     struct tm t;
     GtkWidget *hbox;
+    GtkWidget *hbox1;
     GtkWidget *vbox;
     GtkWidget *align;
     GtkWidget *label;
@@ -997,8 +998,8 @@ LABEL_20:
     align = gtk_alignment_new(0.0, 0.5, 1.0, 0.0);
     gtk_container_add(GTK_CONTAINER(align), vbox);
 
-    hbox = gtk_hbox_new(0, 4);
-    gtk_box_pack_end(GTK_BOX(hbox), align, 1, 1, 4u);
+    hbox1 = gtk_hbox_new(0, 4);
+    gtk_box_pack_end(GTK_BOX(hbox), align, 1, 1, 4);
 
     label = gtk_label_new(alarm_event->title?alarm_event->title:"");
     gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
@@ -1035,13 +1036,13 @@ LABEL_20:
           if ( strcmp(ptr, ALARM_FOR_BIRTHDAY) )
             goto LABEL_34;
           set_label_time_text(label,alarm_event);
-          gtk_box_pack_start(GTK_BOX(hbox), label, 1, 1, 0);
+          gtk_box_pack_start(GTK_BOX(hbox1), label, 1, 1, 0);
           icon = gtk_icon_theme_load_icon(icon_theme, "calendar_birthday", 48, 1, 0);
         }
         else
         {
           set_label_time_text(label,alarm_event);
-          gtk_box_pack_start(GTK_BOX(hbox), label, 0, 0, 0);
+          gtk_box_pack_start(GTK_BOX(hbox1), label, 0, 0, 0);
           icon = gtk_icon_theme_load_icon(icon_theme, "calendar_todo", 48, 1, 0);
         }
 
@@ -1049,7 +1050,7 @@ LABEL_20:
         {
           GtkWidget *image = gtk_image_new_from_pixbuf(icon);
           gtk_misc_set_alignment(GTK_MISC(image), 0.0, 0.5);
-          gtk_box_pack_end(GTK_BOX(hbox), image, 0, 0, 4u);
+          gtk_box_pack_end(GTK_BOX(hbox1), image, 0, 0, 4u);
           g_object_unref(icon);
         }
         goto LABEL_34;
@@ -1088,12 +1089,12 @@ LABEL_20:
       }
     }
 
-    gtk_box_pack_end(GTK_BOX(hbox), label, 1, 1, 0);
+    gtk_box_pack_end(GTK_BOX(hbox1), label, 1, 1, 0);
   LABEL_34:
     if ( ptr )
       free(ptr);
 
-    gtk_box_pack_start(GTK_BOX(vbox), hbox, 0, 0, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), hbox1, 0, 0, 0);
     gtk_box_pack_start(GTK_BOX(vbox), location_label, 1, 1, 0);
     gtk_box_pack_start(GTK_BOX(alarm_hbox), hbox, 1, 1, 0);
     goto LABEL_20;
