@@ -35,7 +35,7 @@ struct alarm
   cookie_t cookie;
   alarm_event_t *alarm_event;
   gboolean pending;
-  int event_index;
+  guint event_index;
   int snooze_cnt;
   int app_id;
   int snooze_action_index;
@@ -43,6 +43,7 @@ struct alarm
   guint snooze_timeout_tag;
   gboolean has_dbus_filter;
   NotifyNotification *notification;
+  GSList *buttons;
 };
 
 enum {
@@ -141,6 +142,7 @@ static void remove_alarm(cookie_t cookie)
   if(a)
   {
     alarm_event_delete(a->alarm_event);
+    g_slist_free(a->buttons);
     free(a);
     alarms = g_slist_remove(alarms,a);
     alarm_events_cnt--;
@@ -581,7 +583,9 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
         dbus_message_unref(message);
       }
       a->pending = FALSE;
-      a->event_index = a->snooze_action_index;
+      a->event_index = g_slist_index(a->buttons,widget);
+      if(a->event_index == -1)
+        a->event_index = a->snooze_action_index;
     }
   }
 
@@ -887,6 +891,7 @@ gboolean show_alarm_dialog(struct alarm *a)
   gtk_widget_hide_all(GTK_WIDGET(alarm_hbox));
   gtk_container_foreach(GTK_CONTAINER(alarm_hbox), widget_destroy, 0);
 
+  g_slist_free(a->buttons);
 
   for(i=0; i < alarm_event->action_cnt; i++)
   {
@@ -906,7 +911,7 @@ gboolean show_alarm_dialog(struct alarm *a)
 
       if ( alarm_event->action_tab[i].flags & ALARM_ACTION_TYPE_SNOOZE )
         a->snooze_action_index = i;
-
+      a->buttons = g_slist_append(a->buttons,button);
       g_signal_connect_data(GTK_WIDGET(button), "clicked", G_CALLBACK(clicked_cb), (gpointer)a->cookie, NULL, 0);
     }
   }
@@ -1107,6 +1112,7 @@ static void show_all_alarms()
 {
   GSList *i;
   struct alarm * found = NULL;
+  gboolean clock_alarm_found = FALSE;
 
   remove_unneeded_alarms(act_dead);
 
@@ -1114,7 +1120,12 @@ static void show_all_alarms()
   {
     struct alarm * a = (struct alarm *)i->data;
 
-    if( a->pending && (get_alarm_event_application(a) == 1) )
+    if( a->pending || get_alarm_event_application(a) == 1 )
+    {
+      clock_alarm_found = TRUE;
+      found = a;
+    }
+    else if(!clock_alarm_found)
       found = a;
 
     if(!i->next && found)
