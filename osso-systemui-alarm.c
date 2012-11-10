@@ -21,11 +21,12 @@
 
 #include "systemui.h"
 
+
 static gboolean snooze_timeout(gpointer user_data);
 static DBusHandlerResult dbus_filter(DBusConnection *connection, DBusMessage *message, void *user_data);
 
 static void clicked_cb(GtkWidget *widget, gpointer user_data);
-static gboolean calendar_timeout(gpointer userdata);
+static gboolean calendar_timeout(gpointer user_data);
 
 static void show_all_alarms();
 
@@ -33,10 +34,15 @@ struct alarm
 {
   cookie_t cookie;
   alarm_event_t *alarm_event;
-  gboolean act_dead_active;
+  gboolean pending;
   int event_index;
   int snooze_cnt;
   int app_id;
+  int snooze_action_index;
+  guint calendar_timeout_tag;
+  guint snooze_timeout_tag;
+  gboolean has_dbus_filter;
+  NotifyNotification *notification;
 };
 
 enum {
@@ -53,23 +59,16 @@ GtkWidget *alarm_hbox = NULL;
 GtkWidget *alarm_vbox = NULL;
 GtkWidget *dialog_button_box = NULL;
 
-gint snooze_action_index = 0;
-
-guint snooze_timeout_tag = 0;
-guint calendar_timeout_tag = 0;
 guint idle_tag = 0;
 
 guint alarm_events_cnt = 0;
-guint alarm_events_size = 0;
-struct alarm **alarms_events = NULL;
-cookie_t current_alarm_cookie = -1;
 
 struct systemui *system_ui_info = NULL;
 
 void *plugin = 0;
 void *id = 0;
 
-NotifyNotification *current_notification = NULL;
+GSList* alarms = NULL;
 
 
 #define ALARM_TARGET_TIME_OFFSET "target_time_offset"
@@ -101,6 +100,90 @@ void *notify_actdead_shutdown()
   }
   return rv;
 }
+
+static void add_alarm(cookie_t cookie)
+{
+  struct alarm* a;
+
+  a = calloc(1, sizeof(struct alarm));
+
+  a->cookie = cookie;
+  a->pending = 1;
+  a->event_index = -1;
+  a->app_id = -1;
+  a->snooze_action_index = -1;
+
+  alarm_events_cnt++;
+
+  alarms = g_slist_append(alarms,a);
+}
+
+static struct alarm *find_alarm(cookie_t cookie)
+{
+  GSList *i = NULL;
+
+  for( i = alarms; i; i = i->next )
+  {
+    if( ((struct alarm*)i->data)->cookie == cookie)
+      return (struct alarm*)i->data;
+  }
+
+  return NULL;
+}
+
+static void remove_alarm(cookie_t cookie)
+{
+  GSList *i = NULL;
+  struct alarm* a;
+
+  a = find_alarm(cookie);
+
+  if(a)
+  {
+    alarm_event_delete(a->alarm_event);
+    free(a);
+    alarms = g_slist_remove(alarms,a);
+    alarm_events_cnt--;
+  }
+}
+
+static void remove_unneeded_alarms(gboolean act_dead)
+{
+  GSList *i= NULL;
+  struct alarm* a;
+
+  if ( act_dead )
+  {
+
+    for( i = alarms; i; i = i->next )
+    {
+      if ( ((struct alarm*)i->data)->pending )
+        act_dead = 0;
+    }
+  }
+
+  i = alarms;
+
+  while( i )
+  {
+    struct alarm *a = ((struct alarm*)i->data);
+
+    if ( !a->pending && !act_dead )
+    {
+      alarmd_ack_dialog(a->cookie, last_event_index | a->event_index);
+      remove_alarm(a->cookie);
+      i = alarms;
+      act_dead = 0;
+
+      continue;
+    }
+
+    act_dead = 0;
+    i  = i->next;
+  }
+}
+
+
 
 static void response_cb(GtkDialog *dialog, gint response_id, gpointer user_data)
 {
@@ -161,28 +244,6 @@ static gchar *time2str(struct tm *tm)
   return g_strndup(time_buf, sizeof(time_buf));
 }
 
-static void add_alarm(int count)
-{
-  if ( alarm_events_cnt + count > alarm_events_size )
-  {
-    alarm_events_size = alarm_events_cnt + count;
-    alarms_events = realloc(alarms_events, sizeof(alarms_events[0]));
-  }
-}
-
-static struct alarm *find_alarm(cookie_t cookie)
-{
-  int i;
-
-  for( i = 0; i < alarm_events_cnt; i++ )
-  {
-    if( alarms_events[i]->cookie == cookie)
-      return alarms_events[i];
-  }
-
-  return NULL;
-}
-
 gboolean idle_func(gpointer user_data)
 {
   cookie_t *cookies;
@@ -192,7 +253,8 @@ gboolean idle_func(gpointer user_data)
 
   for(i = 0; i < alarm_events_cnt; i++)
   {
-    cookies[i] = alarms_events[i]->cookie;
+    struct alarm * a = (struct alarm *)(g_slist_nth(alarms,i)->data);
+    cookies[i] = a->cookie;
   }
 
   alarmd_ack_queue(cookies, alarm_events_cnt);
@@ -220,25 +282,8 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
   /* FIXME */
   cookie = *(cookie_t*)(param->data+8) & INT_MAX;
 
-  add_alarm(1);
-
   if ( !find_alarm(cookie) )
-  {
-    add_alarm(1);
-
-    a = calloc(1, sizeof(struct alarm));
-
-    a->cookie = cookie;
-    a->alarm_event = 0;
-    a->act_dead_active = 1;
-    a->event_index = -1;
-    a->snooze_cnt = 0;
-    a->app_id = -1;
-
-    alarms_events[alarm_events_cnt] = a;
-
-    alarm_events_cnt++;
-  }
+    add_alarm(cookie);
 
   /* FIXME */
   if ( *(cookie_t*)(param->data+8) >= 0 )
@@ -251,35 +296,6 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
   out[1] = 1;
 
   return 'i';
-}
-
-static void free_alarm(struct alarm *a)
-{
-  if ( a )
-  {
-    alarm_event_delete(a->alarm_event);
-    free(a);
-  }
-}
-
-static void remove_alarm(cookie_t cookie)
-{
-  int i;
-
-  for(i=0; i < alarm_events_cnt; i++)
-  {
-    if( alarms_events[i]->cookie == cookie)
-    {
-      free_alarm(alarms_events[i]);
-
-      for( ; i < alarm_events_cnt-1; i++)
-        alarms_events[i] = alarms_events[i+1];
-
-      alarm_events_cnt--;
-
-      break;
-    }
-  }
 }
 
 static int alarm_close(const char *interface, const char *method, GArray *param, struct systemui *sui, int *out)
@@ -392,17 +408,31 @@ static alarm_event_t *get_alarm_event(struct alarm *a)
   return a->alarm_event;
 }
 
-static void stop_timeouts()
+static void stop_timeout_for_alarm(struct alarm *a)
 {
-  if ( calendar_timeout_tag > 0 )
+  if ( a->calendar_timeout_tag > 0 )
   {
-    g_source_remove(calendar_timeout_tag);
-    calendar_timeout_tag = 0;
+    g_source_remove(a->calendar_timeout_tag);
+    a->calendar_timeout_tag = 0;
   }
-  if ( snooze_timeout_tag > 0 )
+  if ( a->snooze_timeout_tag > 0 )
   {
-    g_source_remove(snooze_timeout_tag);
-    snooze_timeout_tag = 0;
+    g_source_remove(a->snooze_timeout_tag);
+    a->snooze_timeout_tag = 0;
+  }
+}
+
+static void stop_timeouts(struct alarm *a)
+{
+  GSList * i;
+  if(a)
+    stop_timeout_for_alarm(a);
+  else
+  {
+    for(i = alarms; i; i = i->next)
+    {
+      stop_timeout_for_alarm((struct alarm *)i->data);
+    }
   }
 }
 
@@ -410,7 +440,6 @@ gboolean notify_alarm_stop(NotifyNotification *n)
 {
   GError *error = NULL;
 
-  //stopped_not = n;
   if ( n && !notify_notification_close(n, &error) )
     g_error_free(error);
 
@@ -420,13 +449,42 @@ gboolean notify_alarm_stop(NotifyNotification *n)
   return 1;
 }
 
-static gboolean accelerometer_disable()
+static gboolean accelerometer_disable(cookie_t cookie)
 {
   DBusMessage *message;
+  struct alarm * a;
 
-  notify_alarm_stop(current_notification);
+  if(cookie != -1)
+  {
+    if( (a = find_alarm(cookie)) )
+    {
+      if( a->notification )
+      {
+        notify_alarm_stop(a->notification);
+        a->notification = NULL;
+      }
 
-  dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, NULL);
+      if(a->has_dbus_filter)
+      {
+        dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, (gpointer)cookie);
+        a->has_dbus_filter = FALSE;
+      }
+    }
+  }
+  else
+  {
+    GSList *i;
+
+    for(i = alarms; i; i = i->next)
+    {
+      a = (struct alarm *)i->data;
+      if(a->has_dbus_filter)
+      {
+        dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, (gpointer)a->cookie);
+        a->has_dbus_filter = FALSE;
+      }
+    }
+  }
 
   message = dbus_message_new_method_call(
               "com.nokia.mce",
@@ -477,7 +535,7 @@ static DBusHandlerResult dbus_filter(DBusConnection *connection, DBusMessage *me
       {
         if ( !strcmp(face,"face_down") && !device_orientation && alarm_dialog )
         {
-          clicked_cb(alarm_dialog, (gpointer)snooze_action_index);
+          clicked_cb(alarm_dialog, user_data);
           device_orientation = DOWN;
         }
         else if ( !strcmp(face,"face_up") )
@@ -492,16 +550,17 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
 {
   struct alarm *a;
 
-  stop_timeouts();
-  accelerometer_disable();
-  a = find_alarm(current_alarm_cookie);
+  accelerometer_disable((cookie_t)user_data);
+
+  a = find_alarm((cookie_t)user_data);
 
   if ( a )
   {
+    stop_timeouts(a);
     alarm_event_t *ae = get_alarm_event(a);
     if ( ae )
     {
-      if ( !strcmp(alarm_action_get_label(alarm_event_get_action(ae, (int)user_data)), "cloc_bd_view") )
+      if ( !strcmp(alarm_action_get_label(alarm_event_get_action(ae, a->snooze_action_index)), "cloc_bd_view") )
       {
         gchar * s = "unlocked";
         DBusMessage *message;
@@ -521,13 +580,11 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
         dbus_connection_flush(system_ui_info->dbus);
         dbus_message_unref(message);
       }
-      a->act_dead_active = FALSE;
-      a->event_index = (int)user_data;
+      a->pending = FALSE;
+      a->event_index = a->snooze_action_index;
     }
   }
 
-  current_alarm_cookie = -1;
-  snooze_action_index = 0;
   show_all_alarms();
 }
 
@@ -622,18 +679,18 @@ static gboolean is_calendar(struct alarm *a)
   return get_alarm_event_application(a) == 2;
 }
 
-static void alarm_notify()
+static void alarm_notify(cookie_t cookie)
 {
   DBusMessage *message;
   DBusMessage  *reply;
   struct alarm *a;
   gchar * sound_file;
 
-  stop_timeouts();
 
-  a = find_alarm(current_alarm_cookie);
+  a = find_alarm(cookie);
   if ( a )
   {
+    stop_timeouts(a);
     DBusError error = DBUS_ERROR_INIT;
     int x,y,z;
     gchar *orientation,*stand,*face;
@@ -649,7 +706,8 @@ static void alarm_notify()
     dbus_connection_flush(system_ui_info->dbus);
     dbus_message_unref(message);
 
-    dbus_connection_add_filter(system_ui_info->dbus, dbus_filter, NULL, NULL);
+    dbus_connection_add_filter(system_ui_info->dbus, dbus_filter, (void*)cookie, NULL);
+    a->has_dbus_filter = TRUE;
 
     message = dbus_message_new_method_call(
            "com.nokia.mce",
@@ -686,7 +744,7 @@ static void alarm_notify()
       sound_file = g_strdup(s);
       g_free(s);
 
-      current_notification = notify_alarm_start_calendar(sound_file);
+      a->notification = notify_alarm_start_calendar(sound_file);
     }
     else
     {
@@ -701,15 +759,15 @@ static void alarm_notify()
         sound_file = g_strdup("/usr/share/sounds/ui-clock_alarm_default.aac");
       }
 
-      current_notification = notify_alarm_start_clock(sound_file);
+      a->notification = notify_alarm_start_clock(sound_file);
     }
 
     g_free(sound_file);
 
-    calendar_timeout_tag = g_timeout_add_seconds(is_calendar(a) < 1 ? 60 : 10, calendar_timeout, NULL);
+    a->calendar_timeout_tag = g_timeout_add_seconds(is_calendar(a) < 1 ? 60 : 10, calendar_timeout, (gpointer)a->cookie);
 
     if ( a->snooze_cnt < 3 )
-      snooze_timeout_tag = g_timeout_add_seconds(300, snooze_timeout, NULL);
+      a->snooze_timeout_tag = g_timeout_add_seconds(300, snooze_timeout, (gpointer)a->cookie);
 
     dbus_send_alarm_dialog_status(5);
 
@@ -729,13 +787,13 @@ static gboolean snooze_timeout(gpointer user_data)
 {
   struct alarm *a;
 
-  snooze_timeout_tag = 0;
-  a = find_alarm(current_alarm_cookie);
+  a->snooze_timeout_tag = 0;
+  a = find_alarm((cookie_t)user_data);
 
   if ( a )
   {
     ++a->snooze_cnt;
-    alarm_notify();
+    alarm_notify((cookie_t)user_data);
   }
 
   return 0;
@@ -789,14 +847,12 @@ gboolean show_alarm_dialog(struct alarm *a)
   GtkWidget *time_label;
   int i;
 
-  current_alarm_cookie = -1;
-
   alarm_event = get_alarm_event(a);
 
   if ( !alarm_event )
     return FALSE;
 
-  accelerometer_disable();
+  accelerometer_disable(a->cookie);
 
   if ( !alarm_dialog )
   {
@@ -825,8 +881,6 @@ gboolean show_alarm_dialog(struct alarm *a)
     g_signal_connect_data(alarm_dialog, "key-release-event", G_CALLBACK(key_press_cb), 0, 0, 0);
   }
 
-  current_alarm_cookie = a->cookie;
-
   gtk_widget_hide_all(GTK_WIDGET(dialog_button_box));
   gtk_container_foreach(GTK_CONTAINER(dialog_button_box), widget_destroy, 0);
 
@@ -851,9 +905,9 @@ gboolean show_alarm_dialog(struct alarm *a)
       hildon_gtk_widget_set_theme_size(GTK_WIDGET(button), HILDON_SIZE_THUMB_HEIGHT);
 
       if ( alarm_event->action_tab[i].flags & ALARM_ACTION_TYPE_SNOOZE )
-        snooze_action_index = i;
+        a->snooze_action_index = i;
 
-      g_signal_connect_data(GTK_WIDGET(button), "clicked", G_CALLBACK(clicked_cb), (gpointer)i, NULL, 0);
+      g_signal_connect_data(GTK_WIDGET(button), "clicked", G_CALLBACK(clicked_cb), (gpointer)a->cookie, NULL, 0);
     }
   }
 
@@ -903,7 +957,7 @@ gboolean show_alarm_dialog(struct alarm *a)
       gtk_box_pack_start(GTK_BOX(alarm_vbox), alarm_message_label, 1, 1, 0);
 
 LABEL_20:
-    alarm_notify();
+    alarm_notify(a->cookie);
     gtk_widget_show_all(GTK_WIDGET(alarm_dialog));
     return WindowPriority_ShowWindow(alarm_dialog, window_priority);
   }
@@ -1043,42 +1097,6 @@ LABEL_20:
   return TRUE;
 }
 
-static void remove_unneeded_alarms(gboolean act_dead)
-{
-  unsigned int i,j;
-
-
-  if ( act_dead )
-  {
-    for(i=0; i<alarm_events_cnt; i++)
-    {
-      if ( alarms_events[i]->act_dead_active )
-        act_dead = 0;
-    }
-  }
-
-  j = 0;
-
-  for(i=0; i<alarm_events_cnt; i++ )
-  {
-    struct alarm *a = alarms_events[i];
-
-    if ( a->act_dead_active || act_dead )
-    {
-      alarms_events[j] = a;
-      j++;
-    }
-    else
-    {
-      alarmd_ack_dialog(a->cookie, last_event_index | a->event_index);
-      free_alarm(a);
-    }
-    act_dead = 0;
-  }
-
-  alarm_events_cnt = j;
-}
-
 static gboolean  close_dialog(gpointer userdata)
 {
   gtk_dialog_response((GtkDialog*)userdata, GTK_RESPONSE_NONE);
@@ -1087,54 +1105,48 @@ static gboolean  close_dialog(gpointer userdata)
 
 static void show_all_alarms()
 {
-  guint i;
+  GSList *i;
+  struct alarm * found = NULL;
 
   remove_unneeded_alarms(act_dead);
 
-
-  for( i = 0; i < alarm_events_cnt; i++)
+  for( i = alarms; i ; i = i->next)
   {
-    struct alarm * a = NULL;
+    struct alarm * a = (struct alarm *)i->data;
 
-    if( alarms_events[i] &&
-        alarms_events[i]->act_dead_active &&
-        (get_alarm_event_application(alarms_events[i]) == 1)
-        )
-    {
-      a = alarms_events[i];
-    }
+    if( a->pending && (get_alarm_event_application(a) == 1) )
+      found = a;
 
-    if(i == alarm_events_cnt-1 && a)
+    if(!i->next && found)
     {
-      if ( get_alarm_event(a) )
+      if ( get_alarm_event(found) )
       {
-        show_alarm_dialog(a);
+        show_alarm_dialog(found);
         return;
       }
 
-      remove_alarm(a->cookie);
-      i = 0;
-      a = NULL;
+      remove_alarm(found->cookie);
+      i = alarms;
+      found = NULL;
     }
   }
 
   if ( alarm_dialog )
   {
     WindowPriority_HideWindow(alarm_dialog);
-    stop_timeouts();
-    accelerometer_disable();
+    stop_timeouts(NULL);
+    accelerometer_disable(-1);
     gtk_widget_destroy(GTK_WIDGET(alarm_dialog));
     alarm_dialog = 0;
-    current_alarm_cookie = -1;
     dbus_send_alarm_dialog_status(7);
   }
 
   if ( act_dead && alarm_events_cnt )
   {
     if ( alarm_events_cnt != 1 ||
-         alarms_events[0] == 0 ||
-         alarms_events[0]->act_dead_active ||
-         alarms_events[0]->event_index != -1 )
+         g_slist_length(alarms) == 0 ||
+         ((struct alarm *)g_slist_nth_data(alarms,0))->pending ||
+         ((struct alarm *)g_slist_nth_data(alarms,0))->event_index != -1 )
     {
       int dlg_result;
       GtkWidget* note = hildon_note_new_confirmation(GTK_WINDOW(alarm_dialog),
@@ -1164,32 +1176,24 @@ static void show_all_alarms()
   }
 }
 
-/* FIXME */
-static gboolean calendar_timeout(gpointer userdata)
+static gboolean calendar_timeout(gpointer user_data)
 {
   struct alarm *a;
-  struct  alarm *current_alarm;
 
-  accelerometer_disable();
-  calendar_timeout_tag = 0;
+  accelerometer_disable((cookie_t)user_data);
   dbus_send_alarm_dialog_status(6);
 
-  a = find_alarm(current_alarm_cookie);
+  a = find_alarm((cookie_t)user_data);
 
   if ( a && a->snooze_cnt > 2 && act_dead )
   {
-    current_alarm = find_alarm(current_alarm_cookie);
-
-    if ( current_alarm )
+    a->calendar_timeout_tag = 0;
+    if ( get_alarm_event(a) )
     {
-      if ( get_alarm_event(current_alarm) )
-      {
-        current_alarm->act_dead_active = 0;
-        current_alarm->event_index = -1;
-      }
+      a->pending = 0;
+      a->event_index = -1;
     }
-    current_alarm_cookie = -1;
-    snooze_action_index = 0;
+
     show_all_alarms();
   }
 
