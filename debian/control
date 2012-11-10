@@ -1,7 +1,7 @@
 Source: osso-systemui-alarm
 Section: misc
 Maintainer: Ivaylo Dimmitrov <freemangordon@abv.bg>
-Build-Depends: debhelper (>= 5), libhildon1-dev, libgconf2-dev, libalarm-dev, libnotify-dev, libgtk2.0-dev, libdbus-1-dev, libglib2.0-dev, libtime-dev, hildon-plugins-notify-sv
+Build-Depends: debhelper (>= 5), pkg-config, libhildon1-dev, libgconf2-dev, libalarm-dev, libnotify-dev, libgtk2.0-dev, libdbus-1-dev, libglib2.0-dev, libtime-dev, hildon-plugins-notify-sv
 Priority: optional
 Standards-Version: 3.7.2
 
