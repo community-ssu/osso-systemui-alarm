@@ -174,7 +174,7 @@ static void remove_unneeded_alarms(gboolean in_act_dead)
     }
 
     in_act_dead = FALSE;
-    i  = i->next;
+    i = i->next;
   }
 }
 
@@ -476,6 +476,11 @@ static gboolean accelerometer_disable(cookie_t cookie)
     for(i = alarms; i; i = i->next)
     {
       a = (struct alarm *)i->data;
+      if( a->notification || plugin)
+      {
+        notify_alarm_stop(a->notification);
+        a->notification = NULL;
+      }
       if(a->has_dbus_filter)
       {
         dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, (gpointer)a->cookie);
@@ -888,6 +893,7 @@ gboolean show_alarm_dialog(struct alarm *a)
   gtk_container_foreach(GTK_CONTAINER(alarm_hbox), widget_destroy, 0);
 
   g_slist_free(a->buttons);
+  a->buttons = NULL;
 
   for(i=0; i < alarm_event->action_cnt; i++)
   {
