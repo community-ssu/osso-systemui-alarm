@@ -21,11 +21,11 @@ struct systemui
   DBusConnection *dbus;
 };
 
-extern void *nsv_sv_init(void*);
-extern void *nsv_sv_shutdown(void*);
+extern void nsv_sv_init(void*);
+extern void nsv_sv_shutdown(void*);
 
-extern void *nsv_sv_play_event(void*);
-extern void nsv_sv_stop_event(void*, void*);
+extern guint nsv_sv_play_event(void*, guint);
+extern void nsv_sv_stop_event(void*, guint);
 
 extern void add_handler(const char *,
                         int (*)(const char *,const char *, GArray *, struct systemui *, int *),

@@ -67,7 +67,7 @@ guint alarm_events_cnt = 0;
 struct systemui *system_ui_info = NULL;
 
 void *plugin = 0;
-void *id = 0;
+guint nsv_sv_event_id = 0;
 
 GSList* alarms = NULL;
 
@@ -79,27 +79,19 @@ GSList* alarms = NULL;
 #define ALARM_FOR_TASK "task"
 #define ALARM_FOR_BIRTHDAY "birthday"
 
-void *notify_actdead_init()
+void notify_actdead_init()
 {
-  void *rv;
-
-  rv = &plugin;
   if ( !plugin )
-    rv = nsv_sv_init(&plugin);
-  return rv;
+    nsv_sv_init(&plugin);
 }
 
-void *notify_actdead_shutdown()
+void notify_actdead_shutdown()
 {
-  void *rv;
-
-  rv = plugin;
   if ( plugin )
   {
-    rv = nsv_sv_shutdown(plugin);
+    nsv_sv_shutdown(plugin);
     plugin = 0;
   }
-  return rv;
 }
 
 static void add_alarm(cookie_t cookie)
@@ -447,7 +439,10 @@ gboolean notify_alarm_stop(NotifyNotification *n)
     g_error_free(error);
 
   if ( plugin )
-    nsv_sv_stop_event(plugin, id);
+  {
+    nsv_sv_stop_event(plugin, nsv_sv_event_id);
+    nsv_sv_event_id = 0;
+  }
 
   return 1;
 }
@@ -461,7 +456,7 @@ static gboolean accelerometer_disable(cookie_t cookie)
   {
     if( (a = find_alarm(cookie)) )
     {
-      if( a->notification )
+      if( a->notification || plugin)
       {
         notify_alarm_stop(a->notification);
         a->notification = NULL;
@@ -648,7 +643,7 @@ NotifyNotification *notify_alarm_start_clock(const char *sound_file)
     }
     if ( plugin )
     {
-      id = nsv_sv_play_event(plugin);
+      nsv_sv_event_id = nsv_sv_play_event(plugin,3);
       return NULL;
     }
   }
