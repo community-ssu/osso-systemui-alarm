@@ -51,7 +51,7 @@ enum {
   DOWN
 }device_orientation;
 
-guint last_event_index = 0;
+guint boot_os = 0;
 gboolean act_dead = FALSE;
 int window_priority = 190;
 
@@ -149,18 +149,19 @@ static void remove_alarm(cookie_t cookie)
   }
 }
 
-static void remove_unneeded_alarms(gboolean act_dead)
+static void remove_unneeded_alarms(gboolean in_act_dead)
 {
   GSList *i= NULL;
   struct alarm* a;
 
-  if ( act_dead )
-  {
 
+  if ( in_act_dead )
+  {
     for( i = alarms; i; i = i->next )
     {
-      if ( ((struct alarm*)i->data)->pending )
-        act_dead = 0;
+      a = ((struct alarm*)i->data);
+      if ( a->pending )
+        in_act_dead = FALSE;
     }
   }
 
@@ -168,19 +169,19 @@ static void remove_unneeded_alarms(gboolean act_dead)
 
   while( i )
   {
-    struct alarm *a = ((struct alarm*)i->data);
+    a = ((struct alarm*)i->data);
 
-    if ( !a->pending && !act_dead )
+    if ( !a->pending && !in_act_dead )
     {
-      alarmd_ack_dialog(a->cookie, last_event_index | a->event_index);
+      alarmd_ack_dialog(a->cookie, boot_os | a->event_index);
       remove_alarm(a->cookie);
       i = alarms;
-      act_dead = 0;
+      in_act_dead = FALSE;
 
       continue;
     }
 
-    act_dead = 0;
+    in_act_dead = FALSE;
     i  = i->next;
   }
 }
@@ -1121,13 +1122,16 @@ static void show_all_alarms()
   {
     struct alarm * a = (struct alarm *)i->data;
 
-    if( a->pending || get_alarm_event_application(a) == 1 )
+    if( a->pending )
     {
-      clock_alarm_found = TRUE;
-      found = a;
+      if( !found || get_alarm_event_application(a) == 1 )
+      {
+        clock_alarm_found = TRUE;
+        found = a;
+      }
+      else if( !clock_alarm_found )
+        found = a;
     }
-    else if(!clock_alarm_found)
-      found = a;
 
     if(!i->next && found)
     {
@@ -1170,16 +1174,16 @@ static void show_all_alarms()
 
       dlg_result = gtk_dialog_run(GTK_DIALOG(note));
       if ( dlg_result == GTK_RESPONSE_OK || dlg_result == GTK_RESPONSE_ACCEPT )
-        last_event_index = 0x80000000u;
+        boot_os = 0x80000000u;
       else
-        last_event_index = 0;
+        boot_os = 0;
 
       WindowPriority_HideWindow(note);
       gtk_widget_destroy(note);
     }
     else
     {
-      last_event_index = 0;
+      boot_os = 0;
     }
 
     dbus_send_alarm_dialog_status(7);
