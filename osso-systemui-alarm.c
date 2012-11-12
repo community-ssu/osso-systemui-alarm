@@ -20,15 +20,15 @@
 #include <clockd/libtime.h>
 
 #include "systemui.h"
+#include "osso-systemui-alarm.h"
 
-
-static gboolean snooze_timeout(gpointer user_data);
+static gboolean alarm_snooze(gpointer user_data);
 static DBusHandlerResult dbus_filter(DBusConnection *connection, DBusMessage *message, void *user_data);
 
 static void clicked_cb(GtkWidget *widget, gpointer user_data);
-static gboolean calendar_timeout(gpointer user_data);
+static gboolean alarm_stop_notification(gpointer user_data);
 
-static void show_all_alarms();
+static void alarm_show_next_alarm();
 
 struct alarm
 {
@@ -39,17 +39,14 @@ struct alarm
   int snooze_cnt;
   int app_id;
   int snooze_action_index;
-  guint calendar_timeout_tag;
+  guint stop_notification_timeout_tag;
   guint snooze_timeout_tag;
   gboolean has_dbus_filter;
   NotifyNotification *notification;
   GSList *buttons;
 };
 
-enum {
-  UP,
-  DOWN
-}device_orientation;
+device_orientation_t prev_device_orientation;
 
 guint boot_os = 0;
 gboolean act_dead = FALSE;
@@ -94,7 +91,7 @@ void notify_actdead_shutdown()
   }
 }
 
-static void add_alarm(cookie_t cookie)
+static void alarm_add(cookie_t cookie)
 {
   struct alarm* a;
 
@@ -111,25 +108,24 @@ static void add_alarm(cookie_t cookie)
   alarms = g_slist_append(alarms,a);
 }
 
-static struct alarm *find_alarm(cookie_t cookie)
+static struct alarm *alarm_find(cookie_t cookie)
 {
-  GSList *i = NULL;
+  GSList *iter = NULL;
 
-  for( i = alarms; i; i = i->next )
+  for( iter = alarms; iter; iter = iter->next )
   {
-    if( ((struct alarm*)i->data)->cookie == cookie)
-      return (struct alarm*)i->data;
+    if( ((struct alarm*)iter->data)->cookie == cookie)
+      return (struct alarm*)iter->data;
   }
 
   return NULL;
 }
 
-static void remove_alarm(cookie_t cookie)
+static void alarm_remove(cookie_t cookie)
 {
-  GSList *i = NULL;
   struct alarm* a;
 
-  a = find_alarm(cookie);
+  a = alarm_find(cookie);
 
   if(a)
   {
@@ -141,40 +137,41 @@ static void remove_alarm(cookie_t cookie)
   }
 }
 
-static void remove_unneeded_alarms(gboolean in_act_dead)
+static void alarm_remove_played_alarms(gboolean in_act_dead)
 {
-  GSList *i= NULL;
+  GSList *iter= NULL;
   struct alarm* a;
+  gboolean keep_first_played;
 
+  keep_first_played = in_act_dead;
 
   if ( in_act_dead )
   {
-    for( i = alarms; i; i = i->next )
+    for( iter = alarms; iter; iter = iter->next )
     {
-      a = ((struct alarm*)i->data);
+      a = ((struct alarm*)iter->data);
       if ( a->pending )
-        in_act_dead = FALSE;
+        keep_first_played = FALSE;
     }
   }
 
-  i = alarms;
+  iter = alarms;
 
-  while( i )
+  while( iter )
   {
-    a = ((struct alarm*)i->data);
+    a = ((struct alarm*)iter->data);
 
-    if ( !a->pending && !in_act_dead )
+    if ( !a->pending && !keep_first_played )
     {
       alarmd_ack_dialog(a->cookie, boot_os | a->event_index);
-      remove_alarm(a->cookie);
-      i = alarms;
-      in_act_dead = FALSE;
+      alarm_remove(a->cookie);
+      iter = alarms;
 
       continue;
     }
 
-    in_act_dead = FALSE;
-    i = i->next;
+    keep_first_played = FALSE;
+    iter = iter->next;
   }
 }
 
@@ -278,12 +275,12 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
 
   cookie = ((cookie_t)val[0].data.i32) & INT_MAX;
 
-  if ( !find_alarm(cookie) )
-    add_alarm(cookie);
+  if ( !alarm_find(cookie) )
+    alarm_add(cookie);
 
   if ( val[0].data.i32 >= 0 )
   {
-    show_all_alarms();
+    alarm_show_next_alarm();
     add_idle_func();
   }
 
@@ -299,11 +296,11 @@ static int alarm_close(const char *interface, const char *method, GArray *param,
 
   val = (struct systemui_alarm_param *)param->data;
 
-  remove_alarm(((cookie_t)val[0].data.i32) & INT_MAX);
+  alarm_remove(((cookie_t)val[0].data.i32) & INT_MAX);
 
   if ( val[0].data.i32 >= 0 )
   {
-    show_all_alarms();
+    alarm_show_next_alarm();
     add_idle_func();
   }
 
@@ -327,7 +324,7 @@ int plugin_init(struct systemui *sui)
     notify_actdead_init();
   }
 
-  dbus_bus_add_match(sui->dbus,
+  dbus_bus_add_match(sui->system_bus,
                      "type='signal',interface='com.nokia.mce.signal',path='/com/nokia/mce/signal'",
                      &error);
 
@@ -350,7 +347,7 @@ void plugin_close(struct systemui *sui)
     notify_actdead_shutdown();
 
   dbus_bus_remove_match(
-    sui->dbus,
+    sui->system_bus,
     "type='signal',interface='com.nokia.mce.signal',path='/com/nokia/mce/signal'",
     &error);
 
@@ -366,35 +363,6 @@ void plugin_close(struct systemui *sui)
     gtk_object_destroy(GTK_OBJECT(alarm_dialog));
 }
 
-static gboolean dbus_send_alarm_dialog_status(dbus_int32_t status)
-{
-  DBusMessage *message;
-  gboolean result = FALSE;
-
-  message = dbus_message_new_signal("/com/nokia/system_ui/signal",
-                                    "com.nokia.system_ui.signal",
-                                    "alarm_dialog_status");
-
-  if ( message )
-  {
-    if ( dbus_message_append_args(message,
-                                  DBUS_TYPE_UINT32, &status,
-                                  DBUS_TYPE_INVALID) )
-    {
-      dbus_message_set_no_reply(message, TRUE);
-
-      if( dbus_connection_send(system_ui_info->dbus, message, NULL) )
-      {
-        dbus_connection_flush(system_ui_info->dbus);
-        result = TRUE;
-      }
-    }
-
-    dbus_message_unref(message);
-  }
-
-  return result;
-}
 
 static alarm_event_t *get_alarm_event(struct alarm *a)
 {
@@ -409,10 +377,10 @@ static alarm_event_t *get_alarm_event(struct alarm *a)
 
 static void stop_timeout_for_alarm(struct alarm *a)
 {
-  if ( a->calendar_timeout_tag > 0 )
+  if ( a->stop_notification_timeout_tag > 0 )
   {
-    g_source_remove(a->calendar_timeout_tag);
-    a->calendar_timeout_tag = 0;
+    g_source_remove(a->stop_notification_timeout_tag);
+    a->stop_notification_timeout_tag = 0;
   }
   if ( a->snooze_timeout_tag > 0 )
   {
@@ -458,7 +426,7 @@ static gboolean accelerometer_disable(cookie_t cookie)
 
   if(cookie != -1)
   {
-    if( (a = find_alarm(cookie)) )
+    if( (a = alarm_find(cookie)) )
     {
       if( a->notification || plugin)
       {
@@ -468,7 +436,7 @@ static gboolean accelerometer_disable(cookie_t cookie)
 
       if(a->has_dbus_filter)
       {
-        dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, (gpointer)cookie);
+        dbus_connection_remove_filter(system_ui_info->system_bus, dbus_filter, (gpointer)cookie);
         a->has_dbus_filter = FALSE;
       }
     }
@@ -487,22 +455,13 @@ static gboolean accelerometer_disable(cookie_t cookie)
       }
       if(a->has_dbus_filter)
       {
-        dbus_connection_remove_filter(system_ui_info->dbus, dbus_filter, (gpointer)a->cookie);
+        dbus_connection_remove_filter(system_ui_info->system_bus, dbus_filter, (gpointer)a->cookie);
         a->has_dbus_filter = FALSE;
       }
     }
   }
 
-  message = dbus_message_new_method_call(
-              "com.nokia.mce",
-              "/com/nokia/mce/request",
-              "com.nokia.mce.request",
-              "req_accelerometer_disable");
-
-  dbus_message_set_no_reply(message, TRUE);
-  dbus_connection_send(system_ui_info->dbus, message, NULL);
-  dbus_connection_flush(system_ui_info->dbus);
-  dbus_message_unref(message);
+  alarm_mce_accel_disable(system_ui_info->system_bus);
 
   return FALSE;
 }
@@ -526,9 +485,9 @@ static DBusHandlerResult dbus_filter(DBusConnection *connection, DBusMessage *me
   if ( iface && member && path && type == DBUS_MESSAGE_TYPE_SIGNAL )
   {
 
-    if(!strcmp(iface,"com.nokia.mce.signal") &&
-       !strcmp(path,"/com/nokia/mce/signal") &&
-       !strcmp(member,"sig_device_orientation_ind"))
+    if(!strcmp(iface, MCE_SIGNAL_IF) &&
+       !strcmp(path, MCE_SIGNAL_PATH) &&
+       !strcmp(member, MCE_DEVICE_ORIENTATION_SIG))
     {
       dbus_message_get_args( message, &error,
                              DBUS_TYPE_STRING, &orientation,
@@ -540,13 +499,18 @@ static DBusHandlerResult dbus_filter(DBusConnection *connection, DBusMessage *me
                              DBUS_TYPE_INVALID);
       if ( face )
       {
-        if ( !strcmp(face,"face_down") && !device_orientation && alarm_dialog )
+        if ( !strcmp(face, MCE_ORIENTATION_FACE_DOWN) )
         {
-          clicked_cb(alarm_dialog, user_data);
-          device_orientation = DOWN;
+          if( (prev_device_orientation == UP) && alarm_dialog)
+          {
+            prev_device_orientation = DOWN;
+            clicked_cb(alarm_dialog, user_data);
+          }
+          else
+            prev_device_orientation = DOWN;
         }
-        else if ( !strcmp(face,"face_up") )
-          device_orientation = UP;
+        else if ( !strcmp(face, MCE_ORIENTATION_FACE_UP) )
+          prev_device_orientation = UP;
       }
     }
   }
@@ -559,34 +523,18 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
 
   accelerometer_disable((cookie_t)user_data);
 
-  a = find_alarm((cookie_t)user_data);
+  a = alarm_find((cookie_t)user_data);
 
   if ( a )
   {
     stop_timeouts(a);
     alarm_event_t *ae = get_alarm_event(a);
+
     if ( ae )
     {
       if ( !strcmp(alarm_action_get_label(alarm_event_get_action(ae, a->snooze_action_index)), "cloc_bd_view") )
-      {
-        gchar * s = "unlocked";
-        DBusMessage *message;
+        alarm_mce_tklock_unlock(system_ui_info->system_bus);
 
-        message = dbus_message_new_method_call(
-                "com.nokia.mce",
-                "/com/nokia/mce/request",
-                "com.nokia.mce.request",
-                "req_tklock_mode_change");
-
-        dbus_message_append_args(message,
-                                 DBUS_TYPE_STRING, s,
-                                 DBUS_TYPE_INVALID);
-
-        dbus_message_set_no_reply(message, TRUE);
-        dbus_connection_send(system_ui_info->dbus, message, NULL);
-        dbus_connection_flush(system_ui_info->dbus);
-        dbus_message_unref(message);
-      }
       a->pending = FALSE;
       a->event_index = g_slist_index(a->buttons,widget);
       if(a->event_index == -1)
@@ -594,10 +542,10 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
     }
   }
 
-  show_all_alarms();
+  alarm_show_next_alarm();
 }
 
-NotifyNotification *notify_alarm_start_calendar(const char *sound_file)
+NotifyNotification *alarm_notify_notification_calendar(const char *sound_file)
 {
   NotifyNotification *n;
   GError *error = NULL;
@@ -623,7 +571,7 @@ NotifyNotification *notify_alarm_start_calendar(const char *sound_file)
   return NULL;
 }
 
-NotifyNotification *notify_alarm_start_clock(const char *sound_file)
+NotifyNotification *alarm_notify_notification_clock(const char *sound_file)
 {
   NotifyNotification *n;
   GError *error = NULL;
@@ -695,56 +643,16 @@ static void alarm_notify(cookie_t cookie)
   struct alarm *a;
   gchar * sound_file;
 
-
-  a = find_alarm(cookie);
-  if ( a )
+  if ( (a = alarm_find(cookie)) )
   {
     stop_timeouts(a);
-    DBusError error = DBUS_ERROR_INIT;
-    int x,y,z;
-    gchar *orientation,*stand,*face;
 
-    message = dbus_message_new_method_call(
-           "com.nokia.mce",
-           "/com/nokia/mce/request",
-           "com.nokia.mce.request",
-           "req_accelerometer_enable");
+    alarm_mce_accel_enable(system_ui_info->system_bus);
 
-    dbus_message_set_no_reply(message, TRUE);
-    dbus_connection_send(system_ui_info->dbus, message, NULL);
-    dbus_connection_flush(system_ui_info->dbus);
-    dbus_message_unref(message);
-
-    dbus_connection_add_filter(system_ui_info->dbus, dbus_filter, (void*)cookie, NULL);
+    dbus_connection_add_filter(system_ui_info->system_bus, dbus_filter, (void*)cookie, NULL);
     a->has_dbus_filter = TRUE;
 
-    message = dbus_message_new_method_call(
-           "com.nokia.mce",
-           "/com/nokia/mce/request",
-           "com.nokia.mce.request",
-           "get_device_orientation");
-
-    reply = dbus_connection_send_with_reply_and_block(system_ui_info->dbus, message, -1, &error);
-
-    if ( reply )
-    {
-      dbus_message_get_args( reply, &error,
-                             DBUS_TYPE_STRING, &orientation,
-                             DBUS_TYPE_STRING, &stand,
-                             DBUS_TYPE_STRING, &face,
-                             DBUS_TYPE_INT32, &x,
-                             DBUS_TYPE_INT32, &y,
-                             DBUS_TYPE_INT32, &z,
-                             DBUS_TYPE_INVALID);
-
-      device_orientation = (!strcmp(orientation,"face_down"))? DOWN : UP;
-      dbus_message_unref(reply);
-    }
-
-    dbus_message_unref(message);
-
-    if(dbus_error_is_set(&error))
-      dbus_error_free(&error);
+    prev_device_orientation = alarm_mce_get_orientation(system_ui_info->system_bus);
 
     if ( is_calendar(a) )
     {
@@ -753,7 +661,7 @@ static void alarm_notify(cookie_t cookie)
       sound_file = g_strdup(s);
       g_free(s);
 
-      a->notification = notify_alarm_start_calendar(sound_file);
+      a->notification = alarm_notify_notification_calendar(sound_file);
     }
     else
     {
@@ -762,44 +670,35 @@ static void alarm_notify(cookie_t cookie)
       sound_file = g_strdup(s);
       g_free(s);
 
-      if ( access(sound_file, 4) == -1 )
+      if ( access(sound_file, 4) )
       {
         g_free(sound_file);
         sound_file = g_strdup("/usr/share/sounds/ui-clock_alarm_default.aac");
       }
 
-      a->notification = notify_alarm_start_clock(sound_file);
+      a->notification = alarm_notify_notification_clock(sound_file);
     }
 
     g_free(sound_file);
 
-    a->calendar_timeout_tag = g_timeout_add_seconds(is_calendar(a) < 1 ? 60 : 10, calendar_timeout, (gpointer)a->cookie);
+    a->stop_notification_timeout_tag = g_timeout_add_seconds(is_calendar(a) ? 10 : 60, alarm_stop_notification, (gpointer)a->cookie);
 
     if ( a->snooze_cnt < 3 )
-      a->snooze_timeout_tag = g_timeout_add_seconds(300, snooze_timeout, (gpointer)a->cookie);
+      a->snooze_timeout_tag = g_timeout_add_seconds(300, alarm_snooze, (gpointer)a->cookie);
 
-    dbus_send_alarm_dialog_status(5);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,5);
 
-    message = dbus_message_new_method_call(
-            "com.nokia.mce",
-            "/com/nokia/mce/request",
-            "com.nokia.mce.request",
-            "req_display_state_on");
-    dbus_message_set_no_reply(message, TRUE);
-    dbus_connection_send(system_ui_info->dbus, message, 0);
-    dbus_connection_flush(system_ui_info->dbus);
-    dbus_message_unref(message);
+    alarm_mce_turn_display_on(system_ui_info->system_bus);
   }
 }
 
-static gboolean snooze_timeout(gpointer user_data)
+static gboolean alarm_snooze(gpointer user_data)
 {
   struct alarm *a;
 
   a->snooze_timeout_tag = 0;
-  a = find_alarm((cookie_t)user_data);
 
-  if ( a )
+  if ( (a = alarm_find((cookie_t)user_data)) )
   {
     ++a->snooze_cnt;
     alarm_notify((cookie_t)user_data);
@@ -1115,13 +1014,44 @@ static gboolean  close_dialog(gpointer userdata)
   return FALSE;
 }
 
-static void show_all_alarms()
+static void alarm_check_for_powerup()
+{
+  if ( alarm_events_cnt != 1 ||
+       g_slist_length(alarms) == 0 ||
+       ((struct alarm *)g_slist_nth_data(alarms,0))->pending ||
+       ((struct alarm *)g_slist_nth_data(alarms,0))->event_index != -1 )
+  {
+    int dlg_result;
+    GtkWidget* note = hildon_note_new_confirmation(GTK_WINDOW(alarm_dialog),
+                                        dgettext("osso-clock", "cloc_fi_power_up_note_description"));
+
+    WindowPriority_ShowWindow(note, window_priority);
+    g_timeout_add_seconds(15, close_dialog, note);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,5);
+
+    dlg_result = gtk_dialog_run(GTK_DIALOG(note));
+    if ( dlg_result == GTK_RESPONSE_OK || dlg_result == GTK_RESPONSE_ACCEPT )
+      boot_os = 0x80000000u;
+    else
+      boot_os = 0;
+
+    WindowPriority_HideWindow(note);
+    gtk_widget_destroy(note);
+  }
+  else
+  {
+    boot_os = 0;
+  }
+
+}
+
+static void alarm_show_next_alarm()
 {
   GSList *i;
   struct alarm * found = NULL;
   gboolean clock_alarm_found = FALSE;
 
-  remove_unneeded_alarms(act_dead);
+  alarm_remove_played_alarms(act_dead);
 
   for( i = alarms; i ; i = i->next)
   {
@@ -1146,7 +1076,7 @@ static void show_all_alarms()
         return;
       }
 
-      remove_alarm(found->cookie);
+      alarm_remove(found->cookie);
       i = alarms;
       found = NULL;
     }
@@ -1159,63 +1089,37 @@ static void show_all_alarms()
     accelerometer_disable(-1);
     gtk_widget_destroy(GTK_WIDGET(alarm_dialog));
     alarm_dialog = 0;
-    dbus_send_alarm_dialog_status(7);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,7);
   }
 
   if ( act_dead && alarm_events_cnt )
   {
-    if ( alarm_events_cnt != 1 ||
-         g_slist_length(alarms) == 0 ||
-         ((struct alarm *)g_slist_nth_data(alarms,0))->pending ||
-         ((struct alarm *)g_slist_nth_data(alarms,0))->event_index != -1 )
-    {
-      int dlg_result;
-      GtkWidget* note = hildon_note_new_confirmation(GTK_WINDOW(alarm_dialog),
-                                          dgettext("osso-clock", "cloc_fi_power_up_note_description"));
-
-      WindowPriority_ShowWindow(note, window_priority);
-      g_timeout_add_seconds(15, close_dialog, note);
-      dbus_send_alarm_dialog_status(5);
-
-      dlg_result = gtk_dialog_run(GTK_DIALOG(note));
-      if ( dlg_result == GTK_RESPONSE_OK || dlg_result == GTK_RESPONSE_ACCEPT )
-        boot_os = 0x80000000u;
-      else
-        boot_os = 0;
-
-      WindowPriority_HideWindow(note);
-      gtk_widget_destroy(note);
-    }
-    else
-    {
-      boot_os = 0;
-    }
-
-    dbus_send_alarm_dialog_status(7);
-    remove_unneeded_alarms(0);
-    show_all_alarms();
+    alarm_check_for_powerup();
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,7);
+    alarm_remove_played_alarms(0);
+    alarm_show_next_alarm();
   }
 }
 
-static gboolean calendar_timeout(gpointer user_data)
+static gboolean alarm_stop_notification(gpointer user_data)
 {
   struct alarm *a;
 
   accelerometer_disable((cookie_t)user_data);
-  dbus_send_alarm_dialog_status(6);
+  dbus_send_alarm_dialog_status(system_ui_info->system_bus,6);
 
-  a = find_alarm((cookie_t)user_data);
+  a = alarm_find((cookie_t)user_data);
 
   if ( a && a->snooze_cnt > 2 && act_dead )
   {
-    a->calendar_timeout_tag = 0;
+    a->stop_notification_timeout_tag = 0;
     if ( get_alarm_event(a) )
     {
       a->pending = 0;
       a->event_index = -1;
     }
 
-    show_all_alarms();
+    alarm_show_next_alarm();
   }
 
   return FALSE;

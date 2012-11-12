@@ -18,7 +18,7 @@ struct systemui
   int field_24;
   int field_28;
   int field_2C;
-  DBusConnection *dbus;
+  DBusConnection *system_bus;
 };
 
 typedef struct
