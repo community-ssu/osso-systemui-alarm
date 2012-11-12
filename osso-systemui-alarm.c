@@ -267,44 +267,48 @@ static guint add_idle_func()
   return idle_tag;
 }
 
-static int alarm_open(const char *interface, const char *method, GArray *param, struct systemui *sui, int *out)
+static int alarm_open(const char *interface, const char *method, GArray *param, struct systemui *sui, struct systemui_alarm_param *out)
 {
   cookie_t cookie;
-  struct alarm *a;
+  struct systemui_alarm_param *val;
 
   system_ui_info = sui;
 
-  /* FIXME */
-  cookie = *(cookie_t*)(param->data+8) & INT_MAX;
+  val = (struct systemui_alarm_param *)param->data;
+
+  cookie = ((cookie_t)val[0].data.i32) & INT_MAX;
 
   if ( !find_alarm(cookie) )
     add_alarm(cookie);
 
-  /* FIXME */
-  if ( *(cookie_t*)(param->data+8) >= 0 )
+  if ( val[0].data.i32 >= 0 )
   {
     show_all_alarms();
     add_idle_func();
   }
 
-  out[0] = 'i';
-  out[1] = 1;
+  out->arg_type = 'i';
+  out->data.i32 = 1;
 
   return 'i';
 }
 
-static int alarm_close(const char *interface, const char *method, GArray *param, struct systemui *sui, int *out)
+static int alarm_close(const char *interface, const char *method, GArray *param, struct systemui *sui, struct systemui_alarm_param *out)
 {
-  remove_alarm(g_array_index(param,int,1) & INT_MAX);
+  struct systemui_alarm_param *val;
 
-  if ( g_array_index(param,int,1)  >= 0 )
+  val = (struct systemui_alarm_param *)param->data;
+
+  remove_alarm(((cookie_t)val[0].data.i32) & INT_MAX);
+
+  if ( val[0].data.i32 >= 0 )
   {
     show_all_alarms();
     add_idle_func();
   }
 
-  out[0] = 'i';
-  out[1] = 1;
+  out->arg_type = 'i';
+  out->data.i32 = 1;
   return 'i';
 }
 
