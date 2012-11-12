@@ -527,8 +527,10 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
 
   if ( a )
   {
+    alarm_event_t *ae;
+
     stop_timeouts(a);
-    alarm_event_t *ae = get_alarm_event(a);
+    ae = get_alarm_event(a);
 
     if ( ae )
     {
@@ -748,11 +750,194 @@ static void set_label_time_text(GtkWidget * label,alarm_event_t *alarm_event)
   }
 }
 
+void alarm_create_clock_alarm_dialog(alarm_event_t *alarm_event)
+{
+  struct tm t;
+  GtkWidget *time_label;
+  GtkWidget * alarm_message_label = NULL;
+  gchar * s;
+  GtkWidget * align;
+
+  memset(&t, 0, sizeof(t));
+  gtk_window_set_title(GTK_WINDOW(alarm_dialog),
+                       dgettext("osso-clock", "cloc_ti_alarm_notification_title"));
+
+  if ( alarm_event->message && *alarm_event->message )
+  {
+    alarm_message_label = gtk_label_new(0);
+    gtk_label_set_line_wrap(GTK_LABEL(alarm_message_label), TRUE);
+    gtk_label_set_text(GTK_LABEL(alarm_message_label), alarm_event->message);
+    g_signal_connect_data(GTK_WIDGET(alarm_message_label), "size-request", G_CALLBACK(size_request_cb), 0, 0, 0);
+  }
+
+  time_get_synced();
+  time_get_local_ex(alarm_event->trigger, &t);
+  s = time2str(&t);
+  time_label = gtk_label_new(s);
+  g_free(s);
+
+  hildon_helper_set_logical_font(time_label, "XXX-LargeSystemFont");
+  hildon_helper_set_logical_color(time_label, GTK_RC_FG, 0, "DefaultTextColor");
+
+  if ( alarm_event->message && *alarm_event->message )
+  {
+    hildon_helper_set_logical_font(alarm_message_label, "SystemFont");
+    hildon_helper_set_logical_color(alarm_message_label, GTK_RC_FG, 0, "DefaultTextColor");
+  }
+
+  alarm_vbox = gtk_vbox_new(0, 0);
+  align = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+
+  gtk_container_add(GTK_CONTAINER(align), GTK_WIDGET(alarm_vbox));
+  gtk_container_add(GTK_CONTAINER(alarm_hbox), align);
+  gtk_misc_set_alignment(GTK_MISC(alarm_vbox), 0.5, 0.5);
+  gtk_box_pack_start(GTK_BOX(alarm_vbox), time_label, 0, 0, 0);
+
+  if ( alarm_event->message && *alarm_event->message )
+    gtk_box_pack_start(GTK_BOX(alarm_vbox), alarm_message_label, 1, 1, 0);
+
+}
+
+void alarm_create_calendar_alarm_dialog(alarm_event_t *alarm_event)
+{
+  struct tm t;
+  GtkWidget *hbox;
+  GtkWidget *hbox1;
+  GtkWidget *vbox;
+  GtkWidget *align;
+  GtkWidget *label;
+  GtkWidget *location_label;
+  GtkIconTheme *icon_theme;
+  GdkPixbuf* pixbuf;
+  char *event_type;
+
+  memset(&t, 0, sizeof(t));
+
+  hbox = gtk_hbox_new(0, 0);
+  icon_theme = gtk_icon_theme_get_default();
+
+  pixbuf = gtk_icon_theme_load_icon(icon_theme , "clock_calendar_alarm", 128, GTK_ICON_LOOKUP_NO_SVG, 0);
+
+  if ( pixbuf )
+  {
+    GtkWidget *image = gtk_image_new_from_pixbuf(pixbuf);
+    gtk_misc_set_alignment(GTK_MISC(image), 1.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(hbox), image, 0, 0, 4);
+    gtk_widget_show(image);
+    g_object_unref(pixbuf);
+  }
+
+  vbox = gtk_vbox_new(0, 4);
+  align = gtk_alignment_new(0.0, 0.5, 1.0, 0.0);
+  gtk_container_add(GTK_CONTAINER(align), vbox);
+
+  hbox1 = gtk_hbox_new(0, 4);
+  gtk_box_pack_end(GTK_BOX(hbox), align, 1, 1, 4);
+
+  label = gtk_label_new(alarm_event->title?alarm_event->title:"");
+  gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
+
+  hildon_helper_set_logical_font(label, "X-LargeSystemFont");
+  hildon_helper_set_logical_color(label, GTK_RC_FG, 0, "DefaultTextColor");
+
+  gtk_label_set_line_wrap(GTK_LABEL(label), 1);
+  gtk_widget_set_size_request(label, 664, -1);
+  g_signal_connect_data(label, "size-request", G_CALLBACK(size_request_cb), 0, 0, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), label, 1, 1, 0);
+
+  gtk_label_set_text(GTK_LABEL(label), alarm_event->title?alarm_event->title:"");
+  label = gtk_label_new(" ");
+  gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
+
+  location_label = gtk_label_new(alarm_event_get_attr_string(alarm_event, "location", NULL));
+  gtk_label_set_ellipsize(GTK_LABEL(location_label), PANGO_ELLIPSIZE_END);
+  gtk_misc_set_alignment(GTK_MISC(location_label), 0.0, 0.5);
+  hildon_helper_set_logical_font(location_label, "SystemFont");
+  hildon_helper_set_logical_color(location_label, GTK_RC_FG, 0, "SecondaryTextColor");
+
+  event_type = strdup(alarm_event_get_attr_string(alarm_event,
+                                    ALARM_CALENDAR_EVENT_TYPE,
+                                    "unset"));
+
+  if ( !strcmp(event_type, ALARM_FOR_NORMAL_EVENT) )
+  {
+    gchar * s;
+    time_t tick = get_alarm_time(alarm_event);
+
+    if ( tick )
+    {
+      struct tm lt,t;
+
+      time_get_synced();
+      time_get_local_ex(tick, &lt);
+      memset(&t, 0, sizeof(t));
+      time_get_local(&t);
+
+      if ( tick - mktime(&t) <= 10800 )
+      {
+        s = time2str(&lt);
+      }
+      else
+      {
+        gchar *date = get_full_date(&lt);
+        gchar *time = time2str(&lt);
+        s = g_strconcat(date, " - ", time, NULL);
+        g_free(date);
+        g_free(time);
+      }
+
+      gtk_label_set_text(GTK_LABEL(label), s);
+      hildon_helper_set_logical_font(label, "LargeSystemFont");
+      g_free(s);
+    }
+
+    gtk_box_pack_end(GTK_BOX(hbox1), label, 1, 1, 0);
+  }
+  else
+  {
+    if ( !strcmp(event_type, ALARM_FOR_ALLDAY) )
+    {
+      set_label_time_text(label,alarm_event);
+      gtk_box_pack_end(GTK_BOX(hbox1), label, 1, 1, 0);
+    }
+    else
+    {
+      GdkPixbuf *icon = NULL;
+
+      if ( !strcmp(event_type, ALARM_FOR_TASK) )
+      {
+        set_label_time_text(label,alarm_event);
+        gtk_box_pack_start(GTK_BOX(hbox1), label, 0, 0, 0);
+        icon = gtk_icon_theme_load_icon(icon_theme, "calendar_todo", 48, 1, 0);
+      }
+      else if ( !strcmp(event_type, ALARM_FOR_BIRTHDAY) )
+      {
+        set_label_time_text(label,alarm_event);
+        gtk_box_pack_start(GTK_BOX(hbox1), label, 1, 1, 0);
+        icon = gtk_icon_theme_load_icon(icon_theme, "calendar_birthday", 48, 1, 0);
+      }
+
+      if ( icon )
+      {
+        GtkWidget *image = gtk_image_new_from_pixbuf(icon);
+        gtk_misc_set_alignment(GTK_MISC(image), 0.0, 0.5);
+        gtk_box_pack_end(GTK_BOX(hbox1), image, 0, 0, 4);
+        g_object_unref(icon);
+      }
+    }
+  }
+
+  if ( event_type )
+    free(event_type);
+
+  gtk_box_pack_start(GTK_BOX(vbox), hbox1, 0, 0, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), location_label, 1, 1, 0);
+  gtk_box_pack_start(GTK_BOX(alarm_hbox), hbox, 1, 1, 0);
+}
+
 gboolean show_alarm_dialog(struct alarm *a)
 {
   alarm_event_t *alarm_event;
-  char *ptr;
-  GtkWidget *time_label;
   int i;
 
   alarm_event = get_alarm_event(a);
@@ -822,190 +1007,14 @@ gboolean show_alarm_dialog(struct alarm *a)
   }
 
   if ( !is_calendar(a) )
-  {
-    struct tm t;
-    GtkWidget * alarm_message_label = NULL;
-    gchar * s;
-    GtkWidget * align;
-
-    memset(&t, 0, sizeof(t));
-    gtk_window_set_title(GTK_WINDOW(alarm_dialog),
-                         dgettext("osso-clock", "cloc_ti_alarm_notification_title"));
-
-    if ( alarm_event->message && *alarm_event->message )
-    {
-      alarm_message_label = gtk_label_new(0);
-      gtk_label_set_line_wrap(GTK_LABEL(alarm_message_label), TRUE);
-      gtk_label_set_text(GTK_LABEL(alarm_message_label), alarm_event->message);
-      g_signal_connect_data(GTK_WIDGET(alarm_message_label), "size-request", G_CALLBACK(size_request_cb), 0, 0, 0);
-    }
-
-    time_get_synced();
-    time_get_local_ex(alarm_event->trigger, &t);
-    s = time2str(&t);
-    time_label = gtk_label_new(s);
-    g_free(s);
-
-    hildon_helper_set_logical_font(time_label, "XXX-LargeSystemFont");
-    hildon_helper_set_logical_color(time_label, GTK_RC_FG, 0, "DefaultTextColor");
-
-    if ( alarm_event->message && *alarm_event->message )
-    {
-      hildon_helper_set_logical_font(alarm_message_label, "SystemFont");
-      hildon_helper_set_logical_color(alarm_message_label, GTK_RC_FG, 0, "DefaultTextColor");
-    }
-
-    alarm_vbox = gtk_vbox_new(0, 0);
-    align = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-
-    gtk_container_add(GTK_CONTAINER(align), GTK_WIDGET(alarm_vbox));
-    gtk_container_add(GTK_CONTAINER(alarm_hbox), align);
-    gtk_misc_set_alignment(GTK_MISC(alarm_vbox), 0.5, 0.5);
-    gtk_box_pack_start(GTK_BOX(alarm_vbox), time_label, 0, 0, 0);
-
-    if ( alarm_event->message && *alarm_event->message )
-      gtk_box_pack_start(GTK_BOX(alarm_vbox), alarm_message_label, 1, 1, 0);
-
-LABEL_20:
-    alarm_notify(a->cookie);
-    gtk_widget_show_all(GTK_WIDGET(alarm_dialog));
-    return WindowPriority_ShowWindow(alarm_dialog, window_priority);
-  }
+    alarm_create_clock_alarm_dialog(alarm_event);
   else
-  {
-    struct tm t;
-    GtkWidget *hbox;
-    GtkWidget *hbox1;
-    GtkWidget *vbox;
-    GtkWidget *align;
-    GtkWidget *label;
-    GtkWidget *location_label;
-    GtkIconTheme *icon_theme;
-    GdkPixbuf* pixbuf;
+    alarm_create_calendar_alarm_dialog(alarm_event);
 
-    memset(&t, 0, sizeof(t));
+  alarm_notify(a->cookie);
+  gtk_widget_show_all(GTK_WIDGET(alarm_dialog));
 
-    hbox = gtk_hbox_new(0, 0);
-    icon_theme = gtk_icon_theme_get_default();
-
-    pixbuf = gtk_icon_theme_load_icon(icon_theme , "clock_calendar_alarm", 128, GTK_ICON_LOOKUP_NO_SVG, 0);
-
-    if ( pixbuf )
-    {
-      GtkWidget *image = gtk_image_new_from_pixbuf(pixbuf);
-      gtk_misc_set_alignment(GTK_MISC(image), 1.0, 0.5);
-      gtk_box_pack_start(GTK_BOX(hbox), image, 0, 0, 4);
-      gtk_widget_show(image);
-      g_object_unref(pixbuf);
-    }
-
-    vbox = gtk_vbox_new(0, 4);
-    align = gtk_alignment_new(0.0, 0.5, 1.0, 0.0);
-    gtk_container_add(GTK_CONTAINER(align), vbox);
-
-    hbox1 = gtk_hbox_new(0, 4);
-    gtk_box_pack_end(GTK_BOX(hbox), align, 1, 1, 4);
-
-    label = gtk_label_new(alarm_event->title?alarm_event->title:"");
-    gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
-
-    hildon_helper_set_logical_font(label, "X-LargeSystemFont");
-    hildon_helper_set_logical_color(label, GTK_RC_FG, 0, "DefaultTextColor");
-
-    gtk_label_set_line_wrap(GTK_LABEL(label), 1);
-    gtk_widget_set_size_request(label, 664, -1);
-    g_signal_connect_data(label, "size-request", G_CALLBACK(size_request_cb), 0, 0, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), label, 1, 1, 0);
-
-    gtk_label_set_text(GTK_LABEL(label), alarm_event->title?alarm_event->title:"");
-    label = gtk_label_new(" ");
-    gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
-
-    location_label = gtk_label_new(alarm_event_get_attr_string(alarm_event, "location", NULL));
-    gtk_label_set_ellipsize(GTK_LABEL(location_label), PANGO_ELLIPSIZE_END);
-    gtk_misc_set_alignment(GTK_MISC(location_label), 0.0, 0.5);
-    hildon_helper_set_logical_font(location_label, "SystemFont");
-    hildon_helper_set_logical_color(location_label, GTK_RC_FG, 0, "SecondaryTextColor");
-
-    ptr = strdup(alarm_event_get_attr_string(alarm_event,
-                                      ALARM_CALENDAR_EVENT_TYPE,
-                                      "unset"));
-
-    if ( strcmp(ptr, ALARM_FOR_NORMAL_EVENT) )
-    {
-      if ( strcmp(ptr, ALARM_FOR_ALLDAY) )
-      {
-        GdkPixbuf *icon = NULL;
-        if ( strcmp(ptr, ALARM_FOR_TASK) )
-        {
-          if ( strcmp(ptr, ALARM_FOR_BIRTHDAY) )
-            goto LABEL_34;
-          set_label_time_text(label,alarm_event);
-          gtk_box_pack_start(GTK_BOX(hbox1), label, 1, 1, 0);
-          icon = gtk_icon_theme_load_icon(icon_theme, "calendar_birthday", 48, 1, 0);
-        }
-        else
-        {
-          set_label_time_text(label,alarm_event);
-          gtk_box_pack_start(GTK_BOX(hbox1), label, 0, 0, 0);
-          icon = gtk_icon_theme_load_icon(icon_theme, "calendar_todo", 48, 1, 0);
-        }
-
-        if ( icon )
-        {
-          GtkWidget *image = gtk_image_new_from_pixbuf(icon);
-          gtk_misc_set_alignment(GTK_MISC(image), 0.0, 0.5);
-          gtk_box_pack_end(GTK_BOX(hbox1), image, 0, 0, 4u);
-          g_object_unref(icon);
-        }
-        goto LABEL_34;
-      }
-      set_label_time_text(label,alarm_event);
-    }
-    else
-    {
-      gchar * s;
-      time_t tick = get_alarm_time(alarm_event);
-
-      if ( tick )
-      {
-        struct tm lt,t;
-
-        time_get_synced();
-        time_get_local_ex(tick, &lt);
-        memset(&t, 0, sizeof(t));
-        time_get_local(&t);
-
-        if ( tick - mktime(&t) <= 10800 )
-        {
-          s = time2str(&lt);
-        }
-        else
-        {
-          gchar *date = get_full_date(&lt);
-          gchar *time = time2str(&lt);
-          s = g_strconcat(date, " - ", time, NULL);
-          g_free(date);
-          g_free(time);
-        }
-        gtk_label_set_text(GTK_LABEL(label), s);
-        hildon_helper_set_logical_font(label, "LargeSystemFont");
-        g_free(s);
-      }
-    }
-
-    gtk_box_pack_end(GTK_BOX(hbox1), label, 1, 1, 0);
-  LABEL_34:
-    if ( ptr )
-      free(ptr);
-
-    gtk_box_pack_start(GTK_BOX(vbox), hbox1, 0, 0, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), location_label, 1, 1, 0);
-    gtk_box_pack_start(GTK_BOX(alarm_hbox), hbox, 1, 1, 0);
-    goto LABEL_20;
-  }
-
-  return TRUE;
+  return WindowPriority_ShowWindow(alarm_dialog, window_priority);
 }
 
 static gboolean  close_dialog(gpointer userdata)
