@@ -364,7 +364,7 @@ void plugin_close(struct systemui *sui)
 }
 
 
-static alarm_event_t *get_alarm_event(struct alarm *a)
+static alarm_event_t *alarm_get_alarm_event(struct alarm *a)
 {
   if (!a)
     return NULL;
@@ -419,9 +419,8 @@ gboolean notify_alarm_stop(NotifyNotification *n)
   return 1;
 }
 
-static gboolean accelerometer_disable(cookie_t cookie)
+static gboolean alarm_notify_notification_stop(cookie_t cookie)
 {
-  DBusMessage *message;
   struct alarm * a;
 
   if(cookie != -1)
@@ -521,7 +520,7 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
 {
   struct alarm *a;
 
-  accelerometer_disable((cookie_t)user_data);
+  alarm_notify_notification_stop((cookie_t)user_data);
 
   a = alarm_find((cookie_t)user_data);
 
@@ -530,7 +529,7 @@ static void clicked_cb(GtkWidget *widget, gpointer user_data)
     alarm_event_t *ae;
 
     stop_timeouts(a);
-    ae = get_alarm_event(a);
+    ae = alarm_get_alarm_event(a);
 
     if ( ae )
     {
@@ -619,14 +618,14 @@ static int get_alarm_event_application(struct alarm *a)
   if ( a->app_id == -1 )
   {
     a->app_id = 0;
-    event = get_alarm_event(a);
+    event = alarm_get_alarm_event(a);
 
     if ( event && event->alarm_appid )
     {
       if(!strcmp(event->alarm_appid, "worldclock_alarmd_id"))
         a->app_id = 1;
       else if(!strcmp(event->alarm_appid, "Calendar"))
-          a->app_id = 2;
+        a->app_id = 2;
     }
   }
 
@@ -640,8 +639,6 @@ static gboolean is_calendar(struct alarm *a)
 
 static void alarm_notify(cookie_t cookie)
 {
-  DBusMessage *message;
-  DBusMessage  *reply;
   struct alarm *a;
   gchar * sound_file;
 
@@ -940,12 +937,12 @@ gboolean show_alarm_dialog(struct alarm *a)
   alarm_event_t *alarm_event;
   int i;
 
-  alarm_event = get_alarm_event(a);
+  alarm_event = alarm_get_alarm_event(a);
 
   if ( !alarm_event )
     return FALSE;
 
-  accelerometer_disable(a->cookie);
+  alarm_notify_notification_stop(a->cookie);
 
   if ( !alarm_dialog )
   {
@@ -1017,9 +1014,9 @@ gboolean show_alarm_dialog(struct alarm *a)
   return WindowPriority_ShowWindow(alarm_dialog, window_priority);
 }
 
-static gboolean  close_dialog(gpointer userdata)
+static gboolean alarm_powerup_dialog_close(gpointer userdata)
 {
-  gtk_dialog_response((GtkDialog*)userdata, GTK_RESPONSE_NONE);
+  gtk_dialog_response(GTK_DIALOG((GtkWidget*)userdata), GTK_RESPONSE_NONE);
   return FALSE;
 }
 
@@ -1035,7 +1032,7 @@ static void alarm_check_for_powerup()
                                         dgettext("osso-clock", "cloc_fi_power_up_note_description"));
 
     WindowPriority_ShowWindow(note, window_priority);
-    g_timeout_add_seconds(15, close_dialog, note);
+    g_timeout_add_seconds(15, alarm_powerup_dialog_close, note);
     dbus_send_alarm_dialog_status(system_ui_info->system_bus,5);
 
     dlg_result = gtk_dialog_run(GTK_DIALOG(note));
@@ -1079,7 +1076,7 @@ static void alarm_show_next_alarm()
 
     if(!i->next && found)
     {
-      if ( get_alarm_event(found) )
+      if ( alarm_get_alarm_event(found) )
       {
         show_alarm_dialog(found);
         return;
@@ -1095,7 +1092,7 @@ static void alarm_show_next_alarm()
   {
     WindowPriority_HideWindow(alarm_dialog);
     stop_timeouts(NULL);
-    accelerometer_disable(-1);
+    alarm_notify_notification_stop(-1);
     gtk_widget_destroy(GTK_WIDGET(alarm_dialog));
     alarm_dialog = 0;
     dbus_send_alarm_dialog_status(system_ui_info->system_bus,7);
@@ -1114,7 +1111,7 @@ static gboolean alarm_stop_notification(gpointer user_data)
 {
   struct alarm *a;
 
-  accelerometer_disable((cookie_t)user_data);
+  alarm_notify_notification_stop((cookie_t)user_data);
   dbus_send_alarm_dialog_status(system_ui_info->system_bus,6);
 
   a = alarm_find((cookie_t)user_data);
@@ -1122,7 +1119,7 @@ static gboolean alarm_stop_notification(gpointer user_data)
   if ( a && a->snooze_cnt > 2 && act_dead )
   {
     a->stop_notification_timeout_tag = 0;
-    if ( get_alarm_event(a) )
+    if ( alarm_get_alarm_event(a) )
     {
       a->pending = 0;
       a->event_index = -1;
