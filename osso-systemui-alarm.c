@@ -701,11 +701,10 @@ static gboolean alarm_snooze(gpointer user_data)
 {
   struct alarm *a;
 
-  a->snooze_timeout_tag = 0;
-
   if ( (a = alarm_find((cookie_t)user_data)) )
   {
-    ++a->snooze_cnt;
+    a->snooze_timeout_tag = 0;
+    a->snooze_cnt++;
     alarm_notify((cookie_t)user_data);
   }
 
