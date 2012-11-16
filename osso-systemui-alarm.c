@@ -205,6 +205,8 @@ static void size_request_cb(GtkWidget *widget, GtkRequisition *requisition, gpoi
   /* check me */
   height = (2 * (pango_font_metrics_get_descent(metrics) + pango_font_metrics_get_ascent(metrics))) / PANGO_SCALE;
 
+  pango_font_metrics_unref(metrics);
+
   if ( height < requisition->height )
     requisition->height = height;
   if ( requisition->width > 590 )
