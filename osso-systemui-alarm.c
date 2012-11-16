@@ -430,6 +430,10 @@ static gboolean alarm_notify_notification_stop(cookie_t cookie)
       if( a->notification || plugin)
       {
         notify_alarm_stop(a->notification);
+
+        if(a->notification)
+          g_object_unref(G_OBJECT(a->notification));
+
         a->notification = NULL;
       }
 
@@ -450,6 +454,8 @@ static gboolean alarm_notify_notification_stop(cookie_t cookie)
       if( a->notification || plugin)
       {
         notify_alarm_stop(a->notification);
+        if(a->notification)
+          g_object_unref(G_OBJECT(a->notification));
         a->notification = NULL;
       }
       if(a->has_dbus_filter)

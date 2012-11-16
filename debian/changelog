@@ -1,3 +1,9 @@
+osso-systemui-alarm (0.3.1) unstable; urgency=low
+
+  * Do not leak NotifyNotification objects
+
+ -- Ivaylo Dimmitrov <freemangordon@abv.bg>  Thu, 16 Nov 2012 09:17:23 +0200
+
 osso-systemui-alarm (0.3) unstable; urgency=low
 
   * First RE release
