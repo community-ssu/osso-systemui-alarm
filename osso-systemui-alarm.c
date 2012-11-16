@@ -125,12 +125,23 @@ static void alarm_remove(cookie_t cookie)
 {
   struct alarm* a;
 
-  a = alarm_find(cookie);
-
-  if(a)
+  if((a = alarm_find(cookie)))
   {
     alarm_event_delete(a->alarm_event);
     g_slist_free(a->buttons);
+
+    if( a->notification )
+    {
+      g_warning("Removing alarm with active notification, please report a bug!");
+      g_object_unref(a->notification);
+    }
+
+    if(a->has_dbus_filter)
+    {
+      g_warning("Removing alarm with active DBUS filter, please report a bug!");
+      dbus_connection_remove_filter(system_ui_info->system_bus, dbus_filter, (gpointer)cookie);
+    }
+
     free(a);
     alarms = g_slist_remove(alarms,a);
     alarm_events_cnt--;
