@@ -12,3 +12,10 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, osso-systemui (>= 0.0.3.8), osso-po
 Suggests: osso-mediaengine (>= 1.2.19)
 Description: Alarm dialog
  This package contains the alarm dialog.
+
+Package: osso-systemui-alarm-dbg
+Architecture: any
+Section: devel
+Depends: osso-systemui-alarm (= ${Source-Version})
+Description: Alarm dialog debug symbls
+ This package contains the Alarm dialog debug symbls

@@ -2,6 +2,8 @@
 # Sample debian/rules that uses debhelper.
 # This file was originally written by Joey Hess and Craig Small.
 
+CFLAGS := -ggdb
+
 # Use thumb mode if it enabled.
 ifneq (,$(findstring thumb,$(DEB_BUILD_OPTIONS)))
 	CFLAGS += -mthumb
@@ -15,7 +17,7 @@ endif
 
 build:
 	dh_testdir
-	$(MAKE)
+	CFLAGS="$(CFLAGS)" $(MAKE)
 
 clean:
 	dh_testdir
@@ -33,7 +35,7 @@ binary: build
 	dh_installchangelogs
 	dh_installdocs
 	dh_link
-	dh_strip
+	dh_strip --dbg-package=osso-systemui-alarm-dbg
 	dh_compress
 	dh_fixperms
 	dh_installdeb
