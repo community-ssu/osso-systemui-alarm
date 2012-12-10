@@ -19,7 +19,7 @@
 
 #include <clockd/libtime.h>
 
-#include "systemui.h"
+#include <systemui.h>
 #include "osso-systemui-alarm.h"
 
 static gboolean alarm_snooze(gpointer user_data);
@@ -61,7 +61,7 @@ guint idle_tag = 0;
 
 guint alarm_events_cnt = 0;
 
-struct systemui *system_ui_info = NULL;
+system_ui_data *system_ui_info = NULL;
 
 void *plugin = 0;
 guint nsv_sv_event_id = 0;
@@ -237,7 +237,7 @@ static gchar *time2str(struct tm *tm)
   const char *msgid;
   char time_buf[256];
 
-  if ( gconf_client_get_bool(system_ui_info->client, "/apps/clock/time-format", 0) )
+  if ( gconf_client_get_bool(system_ui_info->gc_client, "/apps/clock/time-format", 0) )
     msgid = "wdgt_va_24h_time";
   else
     msgid = tm->tm_hour > 11 ? "wdgt_va_12h_time_pm" : "wdgt_va_12h_time_am";
@@ -277,14 +277,14 @@ static guint add_idle_func()
   return idle_tag;
 }
 
-static int alarm_open(const char *interface, const char *method, GArray *param, struct systemui *sui, struct systemui_alarm_param *out)
+static int alarm_open(const char *interface, const char *method, GArray *param, system_ui_data *sui, system_ui_handler_arg *out)
 {
   cookie_t cookie;
-  struct systemui_alarm_param *val;
+  system_ui_handler_arg *val;
 
   system_ui_info = sui;
 
-  val = (struct systemui_alarm_param *)param->data;
+  val = (system_ui_handler_arg *)param->data;
 
   cookie = ((cookie_t)val[0].data.i32) & INT_MAX;
 
@@ -303,11 +303,11 @@ static int alarm_open(const char *interface, const char *method, GArray *param, 
   return 'i';
 }
 
-static int alarm_close(const char *interface, const char *method, GArray *param, struct systemui *sui, struct systemui_alarm_param *out)
+static int alarm_close(const char *interface, const char *method, GArray *param, system_ui_data *sui, system_ui_handler_arg *out)
 {
-  struct systemui_alarm_param *val;
+  system_ui_handler_arg *val;
 
-  val = (struct systemui_alarm_param *)param->data;
+  val = (system_ui_handler_arg *)param->data;
 
   alarm_remove(((cookie_t)val[0].data.i32) & INT_MAX);
 
@@ -322,11 +322,11 @@ static int alarm_close(const char *interface, const char *method, GArray *param,
   return 'i';
 }
 
-int plugin_init(struct systemui *sui)
+int plugin_init(system_ui_data *sui)
 {
   DBusError error = DBUS_ERROR_INIT;
 
-  window_priority = gconf_client_get_int(sui->client, "/system/systemui/alarm/window_priority", 0);
+  window_priority = gconf_client_get_int(sui->gc_client, "/system/systemui/alarm/window_priority", 0);
 
   if ( !window_priority )
     window_priority = 190;
@@ -351,7 +351,7 @@ int plugin_init(struct systemui *sui)
 }
 
 
-void plugin_close(struct systemui *sui)
+void plugin_close(system_ui_data *sui)
 {
   DBusError error = DBUS_ERROR_INIT;
 
@@ -375,7 +375,6 @@ void plugin_close(struct systemui *sui)
   if ( alarm_dialog )
     gtk_object_destroy(GTK_OBJECT(alarm_dialog));
 }
-
 
 static alarm_event_t *alarm_get_alarm_event(struct alarm *a)
 {
@@ -674,7 +673,7 @@ static void alarm_notify(cookie_t cookie)
 
     if ( is_calendar(a) )
     {
-      gchar * s = gconf_client_get_string(system_ui_info->client, "/apps/calendar/calendar-alarm-tone", NULL);
+      gchar * s = gconf_client_get_string(system_ui_info->gc_client, "/apps/calendar/calendar-alarm-tone", NULL);
 
       sound_file = g_strdup(s);
       g_free(s);
@@ -683,7 +682,7 @@ static void alarm_notify(cookie_t cookie)
     }
     else
     {
-      gchar * s = gconf_client_get_string(system_ui_info->client, "/apps/clock/alarm-tone", NULL);
+      gchar * s = gconf_client_get_string(system_ui_info->gc_client, "/apps/clock/alarm-tone", NULL);
 
       sound_file = g_strdup(s);
       g_free(s);
