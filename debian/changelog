@@ -1,3 +1,9 @@
+osso-systemui-alarm (0.3.3+0cssu1) unstable; urgency=low
+
+  * Fix nsv_sv_play_event call
+
+ -- Ivaylo Dimitrov <freemangordon@abv.bg>  Sun, 13 Oct 2013 11:40:21 +0200
+
 osso-systemui-alarm (0.3.3+0cssu0) unstable; urgency=low
 
   * Cssu Release
