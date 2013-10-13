@@ -619,7 +619,7 @@ NotifyNotification *alarm_notify_notification_clock(const char *sound_file)
     }
     if ( plugin )
     {
-      nsv_sv_event_id = nsv_sv_play_event(plugin,3);
+      nsv_sv_event_id = nsv_sv_play_event(plugin, 3, sound_file, 1, "PatternIncomingCall", 1, 100);
       return NULL;
     }
   }
