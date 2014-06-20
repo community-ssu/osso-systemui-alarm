@@ -20,6 +20,8 @@
 #include <clockd/libtime.h>
 
 #include <systemui.h>
+#include <systemui/alarm_dialog-dbus-names.h>
+
 #include "osso-systemui-alarm.h"
 
 static gboolean alarm_snooze(gpointer user_data);
@@ -673,7 +675,8 @@ static void alarm_notify(cookie_t cookie)
       a->snooze_timeout_tag = g_timeout_add_seconds(300, alarm_snooze,
                                                     (gpointer)a->cookie);
 
-    dbus_send_alarm_dialog_status(system_ui_info->system_bus, 5);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,
+                                  ALARM_DIALOG_ON_SCREEN);
     alarm_mce_turn_display_on(system_ui_info->system_bus);
   }
 }
@@ -1016,7 +1019,8 @@ static void alarm_check_for_powerup()
 
     WindowPriority_ShowWindow(note, window_priority);
     g_timeout_add_seconds(15, alarm_powerup_dialog_close, note);
-    dbus_send_alarm_dialog_status(system_ui_info->system_bus, 5);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,
+                                  ALARM_DIALOG_ON_SCREEN);
     dlg_result = gtk_dialog_run(GTK_DIALOG(note));
 
     if (dlg_result == GTK_RESPONSE_OK || dlg_result == GTK_RESPONSE_ACCEPT)
@@ -1068,12 +1072,14 @@ static void alarm_show_next_alarm()
     alarm_notify_notification_stop(-1);
     gtk_widget_destroy(GTK_WIDGET(alarm_dialog));
     alarm_dialog = 0;
-    dbus_send_alarm_dialog_status(system_ui_info->system_bus, 7);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,
+                                  ALARM_DIALOG_NOT_ON_SCREEN);
   }
 
   if (act_dead && alarm_events_cnt) {
     alarm_check_for_powerup();
-    dbus_send_alarm_dialog_status(system_ui_info->system_bus, 7);
+    dbus_send_alarm_dialog_status(system_ui_info->system_bus,
+                                  ALARM_DIALOG_NOT_ON_SCREEN);
     alarm_remove_played_alarms(0);
     alarm_show_next_alarm();
   }
@@ -1084,7 +1090,8 @@ static gboolean alarm_stop_notification(gpointer user_data)
   struct alarm *a;
 
   alarm_notify_notification_stop((cookie_t)user_data);
-  dbus_send_alarm_dialog_status(system_ui_info->system_bus,6);
+  dbus_send_alarm_dialog_status(system_ui_info->system_bus,
+                                ALARM_DIALOG_NOT_RINGING);
   a = alarm_find((cookie_t)user_data);
 
   if (a && a->snooze_cnt > 2 && act_dead) {
