@@ -981,7 +981,7 @@ gboolean show_alarm_dialog(struct alarm *a)
 
       if (alarm_event->action_tab[i].flags & ALARM_ACTION_TYPE_SNOOZE)
         a->snooze_action_index = i;
-      a->buttons = g_slist_append(a->buttons,button);
+      a->buttons = g_slist_append(a->buttons, button);
       g_signal_connect_data(GTK_WIDGET(button), "clicked",
                             G_CALLBACK(clicked_cb), (gpointer)a->cookie, NULL,
                             0);
