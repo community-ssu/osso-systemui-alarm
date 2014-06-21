@@ -1,3 +1,27 @@
+/**
+   @file osso-systemui-alarm.h
+
+   @brief Maemo systemui alarm dialog plugin
+
+   Copyright (C) 2012 Ivaylo Dimitrov <freemangordon@abv.bg>
+
+   This file is part of osso-systemui-alarm.
+
+   this library is free software;
+   you can redistribute it and/or modify it under the terms of the
+   GNU Lesser General Public License version 2.1 as published by the
+   Free Software Foundation.
+
+   osso-systemui-alarm is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with osso-systemui-alarm.
+   If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #ifndef __OSSO_SYSTEMUI_ALARM_H_INCLUDED__
 #define __OSSO_SYSTEMUI_ALARM_H_INCLUDED__
 #include <mce/dbus-names.h>
