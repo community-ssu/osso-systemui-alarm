@@ -1041,7 +1041,7 @@ static void alarm_check_for_powerup()
                                      dgettext("osso-clock",
                                               "cloc_fi_power_up_note_description"));
 
-    WindowPriority_ShowWindow((GtkWindow *)note, window_priority);
+    WindowPriority_ShowWindow(GTK_WINDOW(note), window_priority);
     g_timeout_add_seconds(15, alarm_powerup_dialog_close, note);
     dbus_send_alarm_dialog_status(system_ui_info->system_bus,
                                   ALARM_DIALOG_ON_SCREEN);
@@ -1052,7 +1052,7 @@ static void alarm_check_for_powerup()
     else
       boot_os = 0;
 
-    WindowPriority_HideWindow((GtkWindow *)note);
+    WindowPriority_HideWindow(GTK_WINDOW(note));
     gtk_widget_destroy(note);
   } else
     boot_os = 0;
