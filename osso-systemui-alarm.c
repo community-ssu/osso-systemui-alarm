@@ -79,7 +79,7 @@ guint boot_os = 0;
 gboolean act_dead = FALSE;
 int window_priority = 190;
 
-GtkWindow *alarm_dialog = NULL;
+GtkWidget *alarm_dialog = NULL;
 GtkWidget *alarm_hbox = NULL;
 GtkWidget *alarm_vbox = NULL;
 GtkWidget *dialog_button_box = NULL;
@@ -396,7 +396,7 @@ void plugin_close(system_ui_data *sui)
   remove_handler("alarm_open", sui);
   remove_handler("alarm_close", sui);
 
-  WindowPriority_HideWindow(alarm_dialog);
+  WindowPriority_HideWindow(GTK_WINDOW(alarm_dialog));
 
   if (alarm_dialog)
     gtk_object_destroy(GTK_OBJECT(alarm_dialog));
@@ -537,7 +537,7 @@ static DBusHandlerResult dbus_filter(DBusConnection *connection,
   return TRUE;
 }
 
-static void clicked_cb(GtkWindow *widget, gpointer user_data)
+static void clicked_cb(GtkWidget *widget, gpointer user_data)
 {
   struct alarm *a;
 
@@ -1020,7 +1020,7 @@ gboolean show_alarm_dialog(struct alarm *a)
   alarm_notify(a->cookie);
   gtk_widget_show_all(GTK_WIDGET(alarm_dialog));
 
-  return WindowPriority_ShowWindow(alarm_dialog, window_priority);
+  return WindowPriority_ShowWindow(GTK_WINDOW(alarm_dialog), window_priority);
 }
 
 static gboolean alarm_powerup_dialog_close(gpointer userdata)
