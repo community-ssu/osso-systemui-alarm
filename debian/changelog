@@ -1,3 +1,9 @@
+osso-systemui-alarm (0.3.3+0cssu2) unstable; urgency=low
+
+  * Update parameters for window hide/show functions
+
+ -- Ivaylo Dimitrov <freemangordon@abv.bg>  Sat, 24 Oct 2015 23:53:48 -0400
+
 osso-systemui-alarm (0.3.3+0cssu1) unstable; urgency=low
 
   * Fix nsv_sv_play_event call
