@@ -52,7 +52,7 @@ static gboolean alarm_snooze(gpointer user_data);
 static DBusHandlerResult dbus_filter(DBusConnection *connection,
                                      DBusMessage *message, void *user_data);
 
-static void clicked_cb(GtkWindow *widget, gpointer user_data);
+static void clicked_cb(GtkWidget *widget, gpointer user_data);
 static gboolean alarm_stop_notification(gpointer user_data);
 
 static void alarm_show_next_alarm();
@@ -947,7 +947,7 @@ gboolean show_alarm_dialog(struct alarm *a)
 
   if (!alarm_dialog)
   {
-    alarm_dialog = (GtkWindow *)gtk_dialog_new();
+    alarm_dialog = (GtkWidget *)gtk_dialog_new();
     if (!alarm_dialog)
       return FALSE;
 
@@ -1091,7 +1091,7 @@ static void alarm_show_next_alarm()
   }
 
   if (alarm_dialog) {
-    WindowPriority_HideWindow(alarm_dialog);
+    WindowPriority_HideWindow(GTK_WINDOW(alarm_dialog));
     stop_timeouts(NULL);
     alarm_notify_notification_stop(-1);
     gtk_widget_destroy(GTK_WIDGET(alarm_dialog));
