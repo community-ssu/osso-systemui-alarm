@@ -52,7 +52,7 @@ static gboolean alarm_snooze(gpointer user_data);
 static DBusHandlerResult dbus_filter(DBusConnection *connection,
                                      DBusMessage *message, void *user_data);
 
-static void clicked_cb(GtkWindow *widget, gpointer user_data);
+static void clicked_cb(GtkWidget *widget, gpointer user_data);
 static gboolean alarm_stop_notification(gpointer user_data);
 
 static void alarm_show_next_alarm();
@@ -79,7 +79,7 @@ guint boot_os = 0;
 gboolean act_dead = FALSE;
 int window_priority = 190;
 
-GtkWindow *alarm_dialog = NULL;
+GtkWidget *alarm_dialog = NULL;
 GtkWidget *alarm_hbox = NULL;
 GtkWidget *alarm_vbox = NULL;
 GtkWidget *dialog_button_box = NULL;
@@ -537,7 +537,7 @@ static DBusHandlerResult dbus_filter(DBusConnection *connection,
   return TRUE;
 }
 
-static void clicked_cb(GtkWindow *widget, gpointer user_data)
+static void clicked_cb(GtkWidget *widget, gpointer user_data)
 {
   struct alarm *a;
 
@@ -947,7 +947,7 @@ gboolean show_alarm_dialog(struct alarm *a)
 
   if (!alarm_dialog)
   {
-    alarm_dialog = (GtkWindow *)gtk_dialog_new();
+    alarm_dialog = gtk_dialog_new();
     if (!alarm_dialog)
       return FALSE;
 
@@ -1041,7 +1041,7 @@ static void alarm_check_for_powerup()
                                      dgettext("osso-clock",
                                               "cloc_fi_power_up_note_description"));
 
-    WindowPriority_ShowWindow((GtkWindow *)note, window_priority);
+    WindowPriority_ShowWindow(note, window_priority);
     g_timeout_add_seconds(15, alarm_powerup_dialog_close, note);
     dbus_send_alarm_dialog_status(system_ui_info->system_bus,
                                   ALARM_DIALOG_ON_SCREEN);
@@ -1052,7 +1052,7 @@ static void alarm_check_for_powerup()
     else
       boot_os = 0;
 
-    WindowPriority_HideWindow((GtkWindow *)note);
+    WindowPriority_HideWindow(note);
     gtk_widget_destroy(note);
   } else
     boot_os = 0;
